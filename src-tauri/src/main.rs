@@ -162,6 +162,48 @@ async fn recover_file(
     Ok(format!("Recovered {} ({} KB) → {}", type_str, kb, destination_path))
 }
 
+/// Preview a file: read up to 5 MB and return as base64 (for images/text inline preview).
+#[tauri::command]
+async fn preview_file(
+    file_id: u64,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let (offset_start, size_bytes, type_str) = {
+        let results = state.scan_results.lock().unwrap();
+        let f = results
+            .iter()
+            .find(|f| f.id == file_id)
+            .ok_or_else(|| format!("File ID {} not found", file_id))?;
+        (f.offset_start, f.size_bytes, format!("{}", f.file_type))
+    };
+
+    let device_path = state.scan_device.lock().unwrap().clone();
+    if device_path.is_empty() {
+        return Err("No scan device — run a scan first.".to_string());
+    }
+
+    let read_size = size_bytes.min(5 * 1024 * 1024) as usize; // cap at 5 MB
+    let mut src = open_device_ro(&device_path)
+        .map_err(|e| format!("Cannot open device: {}", e))?;
+    src.seek(SeekFrom::Start(offset_start))
+        .map_err(|e| format!("Seek failed: {}", e))?;
+
+    let mut data = vec![0u8; read_size];
+    src.read_exact(&mut data)
+        .map_err(|e| format!("Read failed: {}", e))?;
+
+    // Return "mime:base64data" so the frontend knows the content type
+    let mime = match type_str.as_str() {
+        "JPEG" => "image/jpeg",
+        "PNG"  => "image/png",
+        "GIF"  => "image/gif",
+        _      => "application/octet-stream",
+    };
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+    Ok(format!("{}:{}", mime, b64))
+}
+
 /// Opens a device or file for raw sequential reading (shared, no write access).
 #[cfg(target_os = "windows")]
 fn open_device_ro(path: &str) -> std::io::Result<std::fs::File> {
@@ -314,6 +356,7 @@ fn main() {
             cancel_scan,
             get_scan_results,
             recover_file,
+            preview_file,
             scan_mft,
             get_mft_results,
             start_shred,

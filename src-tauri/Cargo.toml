@@ -56,6 +56,9 @@ env_logger = "0.11"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Encoding
+base64 = "0.22"
+
 # Error handling
 anyhow = "1.0"
 thiserror = "1.0"

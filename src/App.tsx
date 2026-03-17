@@ -48,6 +48,9 @@ export default function App() {
   const [shredProgress, setShredProgress] = useState<ShredProgress | null>(null);
   const [shredError, setShredError] = useState<string | null>(null);
 
+  // Preview modal
+  const [previewData, setPreviewData] = useState<{ mime: string; b64: string; type: string } | null>(null);
+
   // ── Tauri event listeners ────────────────────────────────────────────────
   useTauriEvents({
     onScanProgress: useCallback((p: ScanProgress) => {
@@ -150,6 +153,19 @@ export default function App() {
       ]);
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async function previewFile(file: RecoveredFile) {
+    try {
+      const raw = await invoke<string>("preview_file", { fileId: file.id });
+      const colonIdx = raw.indexOf(":");
+      if (colonIdx === -1) return;
+      const mime = raw.slice(0, colonIdx);
+      const b64 = raw.slice(colonIdx + 1);
+      setPreviewData({ mime, b64, type: String(file.file_type) });
+    } catch (e) {
+      console.error("Preview failed:", e);
     }
   }
 
@@ -509,7 +525,7 @@ export default function App() {
               <RecoveryTable
                 files={recoveredFiles}
                 onRecover={recoverFile}
-                onPreview={() => {}}
+                onPreview={previewFile}
                 loading={scanState === "scanning" && recoveredFiles.length === 0}
               />
             </div>
@@ -547,6 +563,44 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* ── Preview Modal ── */}
+      {previewData && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setPreviewData(null)}
+        >
+          <div
+            className="relative max-w-3xl max-h-[85vh] bg-[#0a0a0a] border border-[#1a1a2e] rounded-xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[#1a1a2e]">
+              <span className="text-xs text-gray-400 font-mono">{previewData.type} — preview (up to 5 MB)</span>
+              <button
+                onClick={() => setPreviewData(null)}
+                className="text-gray-600 hover:text-white text-lg leading-none px-1"
+              >
+                ×
+              </button>
+            </div>
+            {/* Content */}
+            <div className="p-4 overflow-auto max-h-[calc(85vh-42px)]">
+              {previewData.mime.startsWith("image/") ? (
+                <img
+                  src={`data:${previewData.mime};base64,${previewData.b64}`}
+                  alt="Preview"
+                  className="max-w-full max-h-[70vh] object-contain rounded"
+                />
+              ) : (
+                <pre className="text-xs text-gray-400 font-mono whitespace-pre-wrap break-all">
+                  {atob(previewData.b64).slice(0, 4096)}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

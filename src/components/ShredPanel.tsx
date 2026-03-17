@@ -18,7 +18,10 @@ const ALGORITHMS = [
   {
     id: "DoD5220",
     name: "DoD 5220.22-M",
-    desc: "3 passes: zeros → ones → random. US Department of Defense standard. Suitable for HDDs and regular files. Moderate speed.",
+    desc: "3 passes: zeros → ones → random. Official US Department of Defense standard (NISPOM). Works on HDDs and regular files. Balance of security and speed — takes a few minutes per GB.",
+    recommendation: "✅ Recommended for most users",
+    recommendationColor: "text-green-400",
+    forWhom: "Best for: files, USB drives, HDD disks",
     passes: 3,
     icon: "🛡️",
     safe: true,
@@ -26,7 +29,10 @@ const ALGORITHMS = [
   {
     id: "Gutmann35",
     name: "Gutmann 35-Pass",
-    desc: "35 passes: random data, then 27 specific bit patterns targeting magnetic encoding residues (Gutmann 1996), then random again. Maximum assurance for HDDs. Very slow.",
+    desc: "35 passes based on Peter Gutmann's 1996 paper targeting magnetic encoding residues on older HDD platters. The extra patterns are unnecessary on modern HDDs and useless on SSDs, but provide maximum psychological assurance. Expect hours per GB.",
+    recommendation: "🔬 Overkill — for HDD paranoia only",
+    recommendationColor: "text-yellow-400",
+    forWhom: "Best for: old HDDs with sensitive data. NOT for SSDs.",
     passes: 35,
     icon: "☢️",
     safe: true,
@@ -34,7 +40,10 @@ const ALGORITHMS = [
   {
     id: "RandomSingle",
     name: "Random (1-Pass)",
-    desc: "Single pass of cryptographically random data (ChaCha20). Fast and sufficient for most SSDs and modern media. Not officially certified.",
+    desc: "Single pass of cryptographically strong random data (ChaCha20 CSPRNG). Modern research shows one random pass is sufficient to prevent recovery on SSDs and flash storage. Fastest option — typically seconds to minutes per GB.",
+    recommendation: "⚡ Best for SSDs and quick file deletion",
+    recommendationColor: "text-[#00d4ff]",
+    forWhom: "Best for: SSDs, NVMe, USB flash, individual files",
     passes: 1,
     icon: "⚡",
     safe: false,
@@ -42,7 +51,10 @@ const ALGORITHMS = [
   {
     id: "NvmeSanitize",
     name: "NVMe Sanitize",
-    desc: "Sends a hardware Sanitize command directly to the NVMe controller. The controller erases all NAND flash blocks at the hardware level — more thorough than any software overwrite. Requires device path (e.g. \\.\PhysicalDrive0) and administrator. SSD/M.2 only.",
+    desc: "Sends a hardware Sanitize command directly to the NVMe controller. The drive's firmware erases every NAND flash block — including wear-leveling reserves invisible to software. This is the most thorough method for SSDs. Requires administrator and a device path like \\.\PhysicalDrive0.",
+    recommendation: "💡 Best for NVMe/SSD full-drive wipe",
+    recommendationColor: "text-purple-400",
+    forWhom: "Best for: NVMe SSDs, M.2 drives — full drive only",
     passes: 1,
     icon: "💾",
     safe: true,
@@ -50,7 +62,10 @@ const ALGORITHMS = [
   {
     id: "NvmeFormat",
     name: "NVMe Format NVM",
-    desc: "Sends the NVMe Format NVM command to the controller, reformatting the namespace with User Data Erase. Faster than Sanitize on some drives. Requires device path and administrator. SSD/M.2 only.",
+    desc: "Issues the NVMe Format NVM command (User Data Erase) to the controller, resetting the drive namespace. Faster than Sanitize on some controllers, slightly less thorough. Also requires administrator and a raw device path.",
+    recommendation: "🔧 Alternative to Sanitize on some NVMe drives",
+    recommendationColor: "text-orange-400",
+    forWhom: "Best for: NVMe drives where Sanitize is not supported",
     passes: 1,
     icon: "🔥",
     safe: true,
@@ -117,15 +132,23 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
                   : "border-[#1a1a2e] hover:border-[#1a1a2e]/80 bg-[#0d0d1a]"
               } disabled:opacity-40`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-base leading-none">{algo.icon}</span>
-                  <div>
-                    <div className="text-white text-xs font-medium">{algo.name}</div>
-                    <div className="text-gray-500 text-[10px] leading-relaxed mt-0.5 max-w-xs">{algo.desc}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <span className="text-base leading-none mt-0.5 shrink-0">{algo.icon}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white text-xs font-medium">{algo.name}</span>
+                      <span className={`text-[9px] font-medium ${algo.recommendationColor}`}>
+                        {algo.recommendation}
+                      </span>
+                    </div>
+                    <div className={`text-[9px] font-medium mt-0.5 ${algo.recommendationColor} opacity-70`}>
+                      {algo.forWhom}
+                    </div>
+                    <div className="text-gray-500 text-[10px] leading-relaxed mt-1">{algo.desc}</div>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded border ${
                       algo.safe

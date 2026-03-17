@@ -20,26 +20,36 @@ pub struct RecoveredFile {
 pub enum FileType {
     JPEG,
     PNG,
+    GIF,
     PDF,
-    DOCX,
+    DOCX,   // ZIP-based (DOCX/XLSX/PPTX)
+    DOC,    // OLE2 compound (DOC/XLS/PPT)
     ZIP,
+    RAR,
     EXE,
     MP4,
     MP3,
+    AVI,
+    SQLite,
     Unknown(String),
 }
 
 impl std::fmt::Display for FileType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileType::JPEG => write!(f, "JPEG"),
-            FileType::PNG => write!(f, "PNG"),
-            FileType::PDF => write!(f, "PDF"),
-            FileType::DOCX => write!(f, "DOCX"),
-            FileType::ZIP => write!(f, "ZIP"),
-            FileType::EXE => write!(f, "EXE"),
-            FileType::MP4 => write!(f, "MP4"),
-            FileType::MP3 => write!(f, "MP3"),
+            FileType::JPEG   => write!(f, "JPEG"),
+            FileType::PNG    => write!(f, "PNG"),
+            FileType::GIF    => write!(f, "GIF"),
+            FileType::PDF    => write!(f, "PDF"),
+            FileType::DOCX   => write!(f, "DOCX"),
+            FileType::DOC    => write!(f, "DOC"),
+            FileType::ZIP    => write!(f, "ZIP"),
+            FileType::RAR    => write!(f, "RAR"),
+            FileType::EXE    => write!(f, "EXE"),
+            FileType::MP4    => write!(f, "MP4"),
+            FileType::MP3    => write!(f, "MP3"),
+            FileType::AVI    => write!(f, "AVI"),
+            FileType::SQLite => write!(f, "SQLite"),
             FileType::Unknown(ext) => write!(f, "{}", ext),
         }
     }
@@ -192,6 +202,52 @@ impl FileSignature {
                 footer: None,
                 file_type: FileType::MP3,
                 max_size: 50 * 1024 * 1024,
+            },
+            // ── New formats ──────────────────────────────────────────────────
+            FileSignature {
+                // GIF87a or GIF89a
+                header: vec![0x47, 0x49, 0x46, 0x38],
+                footer: Some(vec![0x00, 0x3B]),
+                file_type: FileType::GIF,
+                max_size: 20 * 1024 * 1024, // 20 MB
+            },
+            FileSignature {
+                // OLE2 Compound Document: covers DOC, XLS, PPT (Office 97-2003)
+                header: vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1],
+                footer: None,
+                file_type: FileType::DOC,
+                max_size: 100 * 1024 * 1024,
+            },
+            FileSignature {
+                // RAR 1.5+ archive
+                header: vec![0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00],
+                footer: None,
+                file_type: FileType::RAR,
+                max_size: 2 * 1024 * 1024 * 1024, // 2 GB
+            },
+            FileSignature {
+                // RAR 5.0+ archive (different signature)
+                header: vec![0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00],
+                footer: None,
+                file_type: FileType::RAR,
+                max_size: 2 * 1024 * 1024 * 1024,
+            },
+            FileSignature {
+                // AVI (RIFF....AVI )
+                header: vec![0x52, 0x49, 0x46, 0x46],
+                footer: None,
+                file_type: FileType::AVI,
+                max_size: 4 * 1024 * 1024 * 1024, // 4 GB
+            },
+            FileSignature {
+                // SQLite 3 database — extremely useful for mobile forensics
+                header: vec![
+                    0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x20, 0x66,
+                    0x6F, 0x72, 0x6D, 0x61, 0x74, 0x20, 0x33, 0x00,
+                ],
+                footer: None,
+                file_type: FileType::SQLite,
+                max_size: 512 * 1024 * 1024,
             },
         ]
     }

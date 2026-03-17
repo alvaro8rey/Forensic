@@ -26,16 +26,22 @@ function FileIcon({ type }: { type: string }) {
   switch (type) {
     case "JPEG":
     case "PNG":
+    case "GIF":
       return <FileImage size={15} className={`${cls} text-pink-400`} />;
     case "PDF":
       return <FileText size={15} className={`${cls} text-orange-400`} />;
     case "MP4":
+    case "AVI":
       return <Video size={15} className={`${cls} text-purple-400`} />;
     case "MP3":
       return <Music size={15} className={`${cls} text-green-400`} />;
     case "ZIP":
     case "DOCX":
+    case "DOC":
+    case "RAR":
       return <Archive size={15} className={`${cls} text-yellow-400`} />;
+    case "SQLite":
+      return <FileText size={15} className={`${cls} text-blue-400`} />;
     default:
       return <File size={15} className={`${cls} text-gray-500`} />;
   }
@@ -212,7 +218,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
                   </div>
                 </td>
                 <td className="px-3 py-2">
-                  <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex justify-end gap-1">
                     {file.preview_available && (
                       <button
                         onClick={() => onPreview(file)}

@@ -110,7 +110,7 @@ impl FileCarver {
                                 sector_overwritten: recovery_prob < 0.3,
                                 preview_available: matches!(
                                     sig.file_type,
-                                    FileType::JPEG | FileType::PNG
+                                    FileType::JPEG | FileType::PNG | FileType::GIF
                                 ),
                                 thumbnail_base64: None,
                             });
