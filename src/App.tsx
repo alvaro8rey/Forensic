@@ -46,6 +46,7 @@ export default function App() {
   // Shred state
   const [shredState, setShredState] = useState<ShredState>("idle");
   const [shredProgress, setShredProgress] = useState<ShredProgress | null>(null);
+  const [shredError, setShredError] = useState<string | null>(null);
 
   // ── Tauri event listeners ────────────────────────────────────────────────
   useTauriEvents({
@@ -91,10 +92,12 @@ export default function App() {
 
     onShredComplete: useCallback(() => {
       setShredState("complete");
+      setShredError(null);
     }, []),
 
-    onShredError: useCallback(() => {
+    onShredError: useCallback((err: string) => {
       setShredState("error");
+      setShredError(err);
     }, []),
   });
 
@@ -162,6 +165,13 @@ export default function App() {
   async function cancelShred() {
     await invoke("cancel_shred");
     setShredState("idle");
+    setShredError(null);
+  }
+
+  function resetShred() {
+    setShredState("idle");
+    setShredProgress(null);
+    setShredError(null);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -230,9 +240,14 @@ export default function App() {
         {/* ── Sidebar ── */}
         <aside className="w-64 shrink-0 border-r border-[#1a1a2e] p-4 flex flex-col gap-4 overflow-y-auto">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-gray-600 uppercase tracking-wider">
-              Storage Devices
-            </span>
+            <div>
+              <span className="text-[10px] text-gray-600 uppercase tracking-wider">
+                Storage Devices
+              </span>
+              <p className="text-[9px] text-gray-700 mt-0.5">
+                Select one to scan or shred
+              </p>
+            </div>
             <button
               onClick={loadDisks}
               className="p-1 rounded hover:bg-[#1a1a2e] text-gray-600 hover:text-[#00d4ff] transition-colors"
@@ -302,7 +317,15 @@ export default function App() {
           {/* ── Dashboard ── */}
           {view === "dashboard" && (
             <div className="p-6 space-y-6">
-              <h2 className="text-lg font-semibold text-white">System Overview</h2>
+              <div>
+                <h2 className="text-lg font-semibold text-white">System Overview</h2>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed max-w-2xl">
+                  <strong className="text-gray-500">Aeon Data Systems</strong> is a forensic recovery and secure data-destruction tool.
+                  Use <span className="text-[#00d4ff]/70">The Hunter</span> to scan a storage device for deleted or hidden files,
+                  and <span className="text-red-400/70">The Oblivion</span> to permanently destroy sensitive data beyond recovery.
+                  Start by selecting a storage device from the left sidebar.
+                </p>
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 {[
                   {
@@ -352,17 +375,27 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => { loadDisks(); setView("hunter"); }}
-                    className="flex items-center gap-2 p-3 rounded-lg border border-[#1a1a2e] hover:border-[#00d4ff]/40 hover:bg-[#00d4ff]/5 text-gray-400 hover:text-[#00d4ff] text-sm transition-all"
+                    className="flex items-start gap-2 p-3 rounded-lg border border-[#1a1a2e] hover:border-[#00d4ff]/40 hover:bg-[#00d4ff]/5 text-gray-400 hover:text-[#00d4ff] text-sm transition-all text-left"
                   >
-                    <Search size={16} />
-                    Start Forensic Scan
+                    <Search size={16} className="mt-0.5 shrink-0" />
+                    <div>
+                      <div>Start Forensic Scan</div>
+                      <div className="text-[10px] text-gray-600 mt-0.5 font-normal">
+                        Recover deleted files via sector-level carving
+                      </div>
+                    </div>
                   </button>
                   <button
                     onClick={() => setView("oblivion")}
-                    className="flex items-center gap-2 p-3 rounded-lg border border-[#1a1a2e] hover:border-red-700/40 hover:bg-red-900/10 text-gray-400 hover:text-red-400 text-sm transition-all"
+                    className="flex items-start gap-2 p-3 rounded-lg border border-[#1a1a2e] hover:border-red-700/40 hover:bg-red-900/10 text-gray-400 hover:text-red-400 text-sm transition-all text-left"
                   >
-                    <ShieldOff size={16} />
-                    Secure Shred
+                    <ShieldOff size={16} className="mt-0.5 shrink-0" />
+                    <div>
+                      <div>Secure Shred</div>
+                      <div className="text-[10px] text-gray-600 mt-0.5 font-normal">
+                        Permanently destroy data (DoD / Gutmann / NVMe)
+                      </div>
+                    </div>
                   </button>
                 </div>
               </div>
@@ -377,8 +410,12 @@ export default function App() {
                   <h2 className="text-lg font-semibold text-white">
                     The Hunter — Forensic Recovery
                   </h2>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    Deep sector scan with magic-byte carving and MFT analysis
+                  <p className="text-xs text-gray-600 mt-0.5 max-w-lg">
+                    Reads the selected device sector by sector, searching for JPEG, PNG, PDF, ZIP, EXE, MP4 and MP3 file signatures.
+                    Deleted or hidden files are listed below for recovery.
+                    {!selectedDisk && (
+                      <span className="text-yellow-500/80 ml-1">← Select a device from the sidebar first.</span>
+                    )}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -445,16 +482,26 @@ export default function App() {
                 <h2 className="text-lg font-semibold text-white">
                   The Oblivion — Military-Grade Shredder
                 </h2>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  DoD 5220.22-M · Gutmann 35-Pass · NVMe Hardware Sanitize
+                <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+                  Overwrites a file or entire drive with cryptographically random data using
+                  DoD 5220.22-M, Gutmann 35-pass, or NVMe hardware sanitize.
+                  Enter a file path or a device path (e.g.{" "}
+                  <code className="font-mono text-gray-500">\\.\C:</code>
+                  {selectedDisk && (
+                    <span className="text-[#00d4ff]/60"> — selected: <code className="font-mono">{selectedDisk}</code></span>
+                  )}
+                  ).
                 </p>
               </div>
 
               <ShredPanel
                 progress={shredProgress}
                 state={shredState}
+                error={shredError}
+                selectedDiskPath={selectedDisk}
                 onStart={startShred}
                 onCancel={cancelShred}
+                onReset={resetShred}
               />
             </div>
           )}

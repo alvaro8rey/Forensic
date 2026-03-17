@@ -67,23 +67,32 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
 
   if (disks.length === 0) {
     return (
-      <div className="text-gray-600 text-sm py-4">No devices detected.</div>
+      <div className="text-gray-600 text-xs py-4 leading-relaxed">
+        No devices detected.
+        <br />
+        Click the refresh button above to enumerate storage devices.
+      </div>
     );
   }
 
   return (
     <div className="space-y-2">
+      <p className="text-[10px] text-gray-700 leading-relaxed">
+        Select a device to use it as target for scanning or shredding.
+      </p>
       {disks.map((disk) => {
         const isSelected = selected === disk.device_path;
         const usedPct =
           disk.total_bytes > 0
             ? Math.round((disk.used_bytes / disk.total_bytes) * 100)
             : 0;
+        const isPhysical = disk.file_system === "RAW";
 
         return (
           <button
             key={disk.device_path}
             onClick={() => onSelect(disk.device_path)}
+            title={`Device path: ${disk.device_path}\nClick to select for scanning or shredding`}
             className={`w-full text-left p-3 rounded-lg border transition-all duration-200 ${
               isSelected
                 ? "border-[#00d4ff] bg-[#00d4ff]/5 shadow-[0_0_12px_rgba(0,212,255,0.15)]"
@@ -93,27 +102,42 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {disk.is_ssd ? (
-                  <Zap size={16} className="text-[#00d4ff]" />
+                  <Zap size={16} className="text-[#00d4ff]" title="Solid-State Drive (SSD)" />
                 ) : (
-                  <HardDrive size={16} className="text-gray-400" />
+                  <HardDrive size={16} className="text-gray-400" title="Hard Disk Drive (HDD)" />
                 )}
-                <span className="text-white text-sm font-medium truncate max-w-[160px]">
+                <span className="text-white text-sm font-medium truncate max-w-[120px]">
                   {disk.display_name}
                 </span>
               </div>
               <div className="flex items-center gap-1">
                 <HealthIcon status={disk.smart_health.overall_health} />
-                <span className="text-xs text-gray-500">
+                <span
+                  className="text-xs text-gray-500"
+                  title={`S.M.A.R.T. health score: ${disk.smart_health.health_score}/100\n(based on available space and disk diagnostics)`}
+                >
                   {disk.smart_health.health_score}%
                 </span>
               </div>
             </div>
 
-            <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-500">
-              <span>{formatBytes(disk.total_bytes)}</span>
-              <span className="text-center">{disk.file_system}</span>
+            {/* Device path badge */}
+            <div className="mt-1.5 mb-1">
+              <span className="font-mono text-[9px] text-gray-700 bg-[#111] px-1.5 py-0.5 rounded border border-[#1a1a2e]">
+                {disk.device_path}
+              </span>
+              {isPhysical && (
+                <span className="ml-1 text-[9px] text-yellow-600 border border-yellow-900/40 px-1 py-0.5 rounded">
+                  RAW DISK
+                </span>
+              )}
+            </div>
+
+            <div className="mt-1 grid grid-cols-3 gap-2 text-xs text-gray-500">
+              <span title="Total storage capacity">{formatBytes(disk.total_bytes)}</span>
+              <span className="text-center" title="File system format">{disk.file_system}</span>
               {disk.smart_health.temperature_celsius != null ? (
-                <span className="flex items-center justify-end gap-0.5">
+                <span className="flex items-center justify-end gap-0.5" title="Drive temperature">
                   <Thermometer size={10} />
                   {disk.smart_health.temperature_celsius}°C
                 </span>
@@ -125,8 +149,12 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
             <HealthBar score={disk.smart_health.health_score} />
 
             <div className="flex justify-between mt-1 text-[10px] text-gray-600">
-              <span>S.M.A.R.T. Health</span>
-              <span>Used: {usedPct}%</span>
+              <span title="Self-Monitoring, Analysis and Reporting Technology — disk reliability indicator">
+                S.M.A.R.T. Health
+              </span>
+              <span title={`${formatBytes(disk.used_bytes)} used out of ${formatBytes(disk.total_bytes)}`}>
+                Used: {usedPct}%
+              </span>
             </div>
           </button>
         );

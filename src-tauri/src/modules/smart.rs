@@ -8,22 +8,51 @@ use super::types::{DiskInfo, HealthStatus, SmartHealth};
 pub struct SmartReader;
 
 impl SmartReader {
-    /// Enumerate all available disks with their health info
+    /// Enumerate all available disks with their health info.
+    /// On Windows each logical volume is returned as \\.\C: so the carver can
+    /// open it directly. Duplicate mount points (sysinfo quirk) are skipped.
     pub fn list_disks() -> Vec<DiskInfo> {
         let disks = Disks::new_with_refreshed_list();
         let mut result = Vec::new();
+        let mut seen_mounts = std::collections::HashSet::new();
 
         for disk in disks.list() {
+            let mount = disk.mount_point().to_string_lossy().to_string();
+
+            // Skip entries with the same mount point (sysinfo can list duplicates)
+            if !seen_mounts.insert(mount.clone()) {
+                continue;
+            }
+
             let is_ssd = disk.kind() == DiskKind::SSD;
             let smart = Self::read_smart_attributes(disk);
 
+            // On Windows derive the proper device path from the mount letter,
+            // e.g. "C:\" -> "\\.\C:"  (required to open volumes for raw I/O)
+            #[cfg(target_os = "windows")]
+            let device_path = {
+                let letter = disk.mount_point()
+                    .to_string_lossy()
+                    .chars()
+                    .next()
+                    .unwrap_or('?');
+                format!(r"\\.\{}:", letter)
+            };
+            #[cfg(not(target_os = "windows"))]
+            let device_path = disk.name().to_string_lossy().to_string();
+
+            // Build display name: volume label + mount point
+            let label = disk.name().to_string_lossy().to_string();
+            let mount_trimmed = mount.trim_end_matches(['\\', '/']).to_string();
+            let display_name = if label.is_empty() {
+                format!("({})", mount_trimmed)
+            } else {
+                format!("{} ({})", label, mount_trimmed)
+            };
+
             result.push(DiskInfo {
-                device_path: disk.name().to_string_lossy().to_string(),
-                display_name: format!(
-                    "{} ({})",
-                    disk.name().to_string_lossy(),
-                    disk.mount_point().to_string_lossy()
-                ),
+                device_path,
+                display_name,
                 total_bytes: disk.total_space(),
                 used_bytes: disk.total_space() - disk.available_space(),
                 file_system: disk.file_system().to_string_lossy().to_string(),
@@ -34,7 +63,7 @@ impl SmartReader {
             });
         }
 
-        // On Windows, augment with raw physical drive info
+        // On Windows, also add raw physical drives (\\.\PhysicalDriveN)
         #[cfg(target_os = "windows")]
         {
             let physical_drives = Self::enumerate_physical_drives_windows();
@@ -100,8 +129,15 @@ impl SmartReader {
             STORAGE_PROPERTY_QUERY, PropertyStandardQuery,
         };
 
-        // Open the physical drive (\\.\PhysicalDrive0, etc.)
-        let drive_path = disk.name().to_string_lossy().to_string();
+        // Open the volume by letter, e.g. \\.\C:
+        let drive_path = {
+            let letter = disk.mount_point()
+                .to_string_lossy()
+                .chars()
+                .next()
+                .unwrap_or('?');
+            format!(r"\\.\{}:", letter)
+        };
         let wide_path: Vec<u16> = OsStr::new(&drive_path)
             .encode_wide()
             .chain(std::iter::once(0))

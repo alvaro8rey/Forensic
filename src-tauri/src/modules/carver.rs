@@ -273,13 +273,17 @@ impl FileCarver {
     fn open_device(&self) -> Result<std::fs::File> {
         use std::os::windows::fs::OpenOptionsExt;
         use windows_sys::Win32::Storage::FileSystem::{
-            FILE_FLAG_NO_BUFFERING, FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
         };
 
+        // FILE_FLAG_NO_BUFFERING is intentionally omitted: it requires every
+        // read buffer pointer and offset to be sector-aligned (512 bytes), but
+        // the overlap-window trick uses a 16-byte prefix that breaks alignment.
+        // FILE_FLAG_SEQUENTIAL_SCAN is enough for a good sequential read-ahead.
         std::fs::OpenOptions::new()
             .read(true)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-            .custom_flags(FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN)
+            .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN)
             .open(&self.device_path)
             .context(format!("Failed to open device: {}", self.device_path))
     }

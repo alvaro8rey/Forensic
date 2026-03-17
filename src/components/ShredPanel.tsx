@@ -7,8 +7,11 @@ import { ShredProgress, ShredState } from "../types";
 interface Props {
   progress: ShredProgress | null;
   state: ShredState;
+  error?: string | null;
+  selectedDiskPath?: string | null;
   onStart: (path: string, algorithm: string, verify: boolean) => void;
   onCancel: () => void;
+  onReset: () => void;
 }
 
 const ALGORITHMS = [
@@ -61,7 +64,7 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function ShredPanel({ progress, state, onStart, onCancel }: Props) {
+export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, onCancel, onReset }: Props) {
   const [selectedAlgo, setSelectedAlgo] = useState("DoD5220");
   const [targetPath, setTargetPath] = useState("");
   const [verify, setVerify] = useState(true);
@@ -69,6 +72,7 @@ export function ShredPanel({ progress, state, onStart, onCancel }: Props) {
 
   const isActive = state === "shredding";
   const isComplete = state === "complete";
+  const isError = state === "error";
 
   async function handleBrowse() {
     const selected = await open({
@@ -140,15 +144,26 @@ export function ShredPanel({ progress, state, onStart, onCancel }: Props) {
 
       {/* Target path */}
       <div>
-        <label className="text-xs text-gray-600 uppercase tracking-wider block mb-1.5">
-          Target
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-xs text-gray-600 uppercase tracking-wider">
+            Target — file path or device path
+          </label>
+          {selectedDiskPath && !isActive && (
+            <button
+              onClick={() => { setTargetPath(selectedDiskPath); setConfirmed(false); }}
+              className="text-[10px] text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors font-mono"
+              title={`Fill with the currently selected disk: ${selectedDiskPath}`}
+            >
+              Use {selectedDiskPath}
+            </button>
+          )}
+        </div>
         <div className="flex gap-2">
           <input
             type="text"
             value={targetPath}
             onChange={(e) => { setTargetPath(e.target.value); setConfirmed(false); }}
-            placeholder="\\\\.\\PhysicalDrive0 or C:\\path\\to\\file"
+            placeholder="\\.\C:  or  C:\path\to\file.docx"
             disabled={isActive}
             className="flex-1 bg-[#0d0d1a] border border-[#1a1a2e] rounded px-3 py-2 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-[#00d4ff]/50 font-mono disabled:opacity-40"
           />
@@ -156,10 +171,17 @@ export function ShredPanel({ progress, state, onStart, onCancel }: Props) {
             onClick={handleBrowse}
             disabled={isActive}
             className="px-2.5 py-2 bg-[#0d0d1a] border border-[#1a1a2e] rounded hover:border-[#00d4ff]/40 text-gray-500 hover:text-[#00d4ff] transition-colors disabled:opacity-40"
+            title="Browse for a file"
           >
             <FolderOpen size={14} />
           </button>
         </div>
+        <p className="text-[10px] text-gray-700 mt-1">
+          Enter a file path to shred a single file, or a device path like{" "}
+          <code className="font-mono">\\.\C:</code> or{" "}
+          <code className="font-mono">\\.\PhysicalDrive0</code> to wipe an entire drive.
+          Requires administrator privileges for device paths.
+        </p>
       </div>
 
       {/* Options */}
@@ -234,33 +256,58 @@ export function ShredPanel({ progress, state, onStart, onCancel }: Props) {
 
       {/* Complete */}
       {isComplete && (
-        <div className="flex items-center gap-2 text-green-400 text-sm border border-green-900/30 bg-green-900/10 rounded-lg px-3 py-2">
-          <CheckCircle size={14} />
-          Destruction complete. Data is unrecoverable.
-          {progress?.verification_passed === true && (
-            <span className="text-[10px] text-green-400/60 ml-auto">✓ Verified</span>
+        <div className="border border-green-900/30 bg-green-900/10 rounded-lg px-3 py-2 space-y-1.5">
+          <div className="flex items-center gap-2 text-green-400 text-sm">
+            <CheckCircle size={14} />
+            Destruction complete. Data is unrecoverable.
+            {progress?.verification_passed === true && (
+              <span className="text-[10px] text-green-400/60 ml-auto">✓ Verified</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {isError && (
+        <div className="border border-red-900/40 bg-red-900/10 rounded-lg px-3 py-2 space-y-1">
+          <div className="flex items-center gap-2 text-red-400 text-sm">
+            <AlertTriangle size={14} />
+            Shred operation failed
+          </div>
+          {error && (
+            <p className="text-[10px] text-red-400/70 font-mono break-all">{error}</p>
           )}
+          <p className="text-[10px] text-gray-600">
+            Common causes: path does not exist, insufficient permissions (run as administrator for device paths), or the drive is in use.
+          </p>
         </div>
       )}
 
       {/* Action buttons */}
       <div className="flex gap-2">
-        {!isActive ? (
-          <button
-            onClick={handleStart}
-            disabled={!targetPath || !confirmed || isComplete}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-900/40 to-red-800/40 border border-red-700/50 text-red-400 text-sm font-medium hover:from-red-800/50 hover:to-red-700/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ShieldOff size={15} />
-            Execute Destruction
-          </button>
-        ) : (
+        {isActive ? (
           <button
             onClick={onCancel}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#0d0d1a] border border-[#1a1a2e] text-gray-400 text-sm font-medium hover:border-red-700/50 hover:text-red-400 transition-all"
           >
             <Square size={15} />
             Cancel
+          </button>
+        ) : (isComplete || isError) ? (
+          <button
+            onClick={onReset}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#0d0d1a] border border-[#1a1a2e] text-gray-400 text-sm font-medium hover:border-[#00d4ff]/40 hover:text-[#00d4ff] transition-all"
+          >
+            New Operation
+          </button>
+        ) : (
+          <button
+            onClick={handleStart}
+            disabled={!targetPath || !confirmed}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-900/40 to-red-800/40 border border-red-700/50 text-red-400 text-sm font-medium hover:from-red-800/50 hover:to-red-700/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ShieldOff size={15} />
+            Execute Destruction
           </button>
         )}
       </div>
