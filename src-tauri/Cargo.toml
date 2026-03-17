@@ -4,7 +4,6 @@ version = "1.0.0"
 description = "Aeon Data Systems - Forensic Recovery & Military-Grade Shredder"
 authors = ["Aeon Data Systems"]
 license = "MIT"
-repository = ""
 edition = "2021"
 rust-version = "1.75"
 
@@ -26,7 +25,6 @@ tauri = { version = "1.6", features = [
     "shell-open",
     "window-all",
 ] }
-tauri-plugin-fs-extra = "0.1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -66,18 +64,25 @@ futures = "0.3"
 async-trait = "0.1"
 
 # Platform-specific (Windows)
+# He limpiado las features de winapi y windows-sys para que sean las reales de la API de Windows
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.52", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_System_Ioctl",
     "Win32_System_IO",
-    "Win32_Devices_DeviceAndDriverInstallation",
-    "Win32_System_WindowsProgramming",
+    "Win32_System_Threading",
     "Win32_Security",
-    "Win32_System_LibraryLoader",
+    "Win32_System_LibraryLoader"
 ] }
-winapi = { version = "0.3", features = ["winioctl", "fileapi", "handleapi", "ioapiset", "winbase", "ntdisk"] }
+winapi = { version = "0.3", features = [
+    "winioctl", 
+    "fileapi", 
+    "handleapi", 
+    "ioapiset", 
+    "winbase", 
+    "errhandlingapi"
+] }
 
 [profile.release]
 opt-level = 3
