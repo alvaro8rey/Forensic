@@ -176,11 +176,12 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             <FolderOpen size={14} />
           </button>
         </div>
-        <p className="text-[10px] text-gray-700 mt-1">
-          Enter a file path to shred a single file, or a device path like{" "}
-          <code className="font-mono">\\.\C:</code> or{" "}
-          <code className="font-mono">\\.\PhysicalDrive0</code> to wipe an entire drive.
-          Requires administrator privileges for device paths.
+        <p className="text-[10px] text-gray-700 mt-1 leading-relaxed">
+          For a <strong className="text-gray-600">file</strong>: enter the full path (e.g.{" "}
+          <code className="font-mono">F:\secret.docx</code>). The file will be overwritten and then <strong className="text-gray-600">deleted</strong>.
+          <br />
+          For an <strong className="text-gray-600">entire drive</strong>: use a device path like{" "}
+          <code className="font-mono">\\.\C:</code> or <code className="font-mono">\\.\PhysicalDrive0</code> (requires administrator).
         </p>
       </div>
 
@@ -256,14 +257,18 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
 
       {/* Complete */}
       {isComplete && (
-        <div className="border border-green-900/30 bg-green-900/10 rounded-lg px-3 py-2 space-y-1.5">
+        <div className="border border-green-900/30 bg-green-900/10 rounded-lg px-3 py-2 space-y-1">
           <div className="flex items-center gap-2 text-green-400 text-sm">
             <CheckCircle size={14} />
-            Destruction complete. Data is unrecoverable.
+            Destruction complete.
             {progress?.verification_passed === true && (
               <span className="text-[10px] text-green-400/60 ml-auto">✓ Verified</span>
             )}
           </div>
+          <p className="text-[10px] text-green-400/50">
+            All passes finished. For files: content overwritten and file deleted.
+            Data is unrecoverable.
+          </p>
         </div>
       )}
 

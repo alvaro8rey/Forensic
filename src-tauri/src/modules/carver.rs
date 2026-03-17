@@ -296,6 +296,44 @@ impl FileCarver {
             .context(format!("Failed to open device: {}", self.device_path))
     }
 
+    /// Returns the byte size of a file or raw device.
+    /// On Windows, SeekFrom::End(0) fails on volumes/drives (ERROR_INVALID_PARAMETER 87).
+    /// Try IOCTL_DISK_GET_LENGTH_INFO first; fall back to seek for regular files.
+    #[cfg(target_os = "windows")]
+    fn get_device_size(&self, file: &mut std::fs::File) -> Result<u64> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::IO::DeviceIoControl;
+        use windows_sys::Win32::System::Ioctl::IOCTL_DISK_GET_LENGTH_INFO;
+
+        let handle = file.as_raw_handle() as isize;
+        let mut length: u64 = 0;
+        let mut bytes_returned: u32 = 0;
+
+        let ok = unsafe {
+            DeviceIoControl(
+                handle,
+                IOCTL_DISK_GET_LENGTH_INFO,
+                std::ptr::null(),
+                0,
+                &mut length as *mut u64 as *mut _,
+                8,
+                &mut bytes_returned,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if ok != 0 && bytes_returned >= 8 && length > 0 {
+            file.seek(SeekFrom::Start(0))?;
+            return Ok(length);
+        }
+
+        // Regular file fallback
+        let size = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(size)
+    }
+
+    #[cfg(not(target_os = "windows"))]
     fn get_device_size(&self, file: &mut std::fs::File) -> Result<u64> {
         let size = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(0))?;

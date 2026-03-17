@@ -73,12 +73,25 @@ impl Shredder {
 
     pub fn execute(&self) -> Result<()> {
         match &self.options.algorithm {
-            ShredAlgorithm::DoD5220 => self.shred_dod5220(),
-            ShredAlgorithm::Gutmann35 => self.shred_gutmann35(),
-            ShredAlgorithm::RandomSingle => self.shred_random_single(),
-            ShredAlgorithm::NvmeSanitize => self.nvme_sanitize(),
-            ShredAlgorithm::NvmeFormat => self.nvme_format_nvm(),
+            ShredAlgorithm::NvmeSanitize => return self.nvme_sanitize(),
+            ShredAlgorithm::NvmeFormat => return self.nvme_format_nvm(),
+            ShredAlgorithm::DoD5220 => self.shred_dod5220()?,
+            ShredAlgorithm::Gutmann35 => self.shred_gutmann35()?,
+            ShredAlgorithm::RandomSingle => self.shred_random_single()?,
         }
+
+        // After overwriting all passes, delete the file so no directory entry remains.
+        // Skip deletion for device paths (\\.\C: / /dev/sdX) — those are not files.
+        let is_device = self.options.target_path.starts_with(r"\\.\")
+            || self.options.target_path.starts_with("/dev/");
+
+        if !is_device {
+            std::fs::remove_file(&self.options.target_path)
+                .context("Data overwritten but could not delete the file afterwards")?;
+            info!("Deleted '{}' after overwrite", self.options.target_path);
+        }
+
+        Ok(())
     }
 
     /// DoD 5220.22-M: 3 passes
@@ -140,8 +153,7 @@ impl Shredder {
             info!("Pass {}/{} ({:?})", current_pass, total_passes, pass_type);
 
             let mut file = self.open_target_rw()?;
-            let file_size = file.seek(SeekFrom::End(0))?;
-            file.seek(SeekFrom::Start(0))?;
+            let file_size = self.get_target_size(&mut file)?;
 
             let mut written: u64 = 0;
             let mut write_buf = vec![0u8; WRITE_BLOCK_SIZE];
@@ -203,8 +215,7 @@ impl Shredder {
     fn verify_last_pass(&self, expected: PassType) -> Result<bool> {
         info!("Verifying last shred pass...");
         let mut file = self.open_target_ro()?;
-        let file_size = file.seek(SeekFrom::End(0))?;
-        file.seek(SeekFrom::Start(0))?;
+        let file_size = self.get_target_size(&mut file)?;
 
         let mut sample_buf = vec![0u8; VERIFICATION_SAMPLE_SIZE];
         let mut verified = true;
@@ -399,6 +410,44 @@ impl Shredder {
         }
 
         Ok(())
+    }
+
+    /// Returns the byte size of a file or raw device.
+    /// On Windows, SeekFrom::End(0) fails on raw volumes with ERROR_INVALID_PARAMETER.
+    /// Use IOCTL_DISK_GET_LENGTH_INFO first; fall back to seek for regular files.
+    fn get_target_size(&self, file: &mut std::fs::File) -> Result<u64> {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::System::IO::DeviceIoControl;
+            use windows_sys::Win32::System::Ioctl::IOCTL_DISK_GET_LENGTH_INFO;
+
+            let handle = file.as_raw_handle() as isize;
+            let mut length: u64 = 0;
+            let mut bytes_returned: u32 = 0;
+
+            let ok = unsafe {
+                DeviceIoControl(
+                    handle,
+                    IOCTL_DISK_GET_LENGTH_INFO,
+                    std::ptr::null(),
+                    0,
+                    &mut length as *mut u64 as *mut _,
+                    8,
+                    &mut bytes_returned,
+                    std::ptr::null_mut(),
+                )
+            };
+
+            if ok != 0 && bytes_returned >= 8 && length > 0 {
+                file.seek(SeekFrom::Start(0))?;
+                return Ok(length);
+            }
+        }
+
+        let size = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(size)
     }
 
     fn open_target_rw(&self) -> Result<std::fs::File> {
