@@ -1,0 +1,21 @@
+# Generated
+node_modules/
+dist/
+target/
+.DS_Store
+
+# Tauri
+src-tauri/target/
+src-tauri/WixTools/
+
+# Env
+.env
+.env.local
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+Thumbs.db
