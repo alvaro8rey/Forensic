@@ -533,7 +533,7 @@ export default function App() {
 
           {/* ── Oblivion View ── */}
           {view === "oblivion" && (
-            <div className="p-6 max-w-xl space-y-4">
+            <div className="p-6 max-w-2xl space-y-4">
               <div>
                 <h2 className="text-lg font-semibold text-white">
                   The Oblivion — Military-Grade Shredder

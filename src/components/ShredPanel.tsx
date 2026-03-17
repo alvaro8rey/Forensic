@@ -117,51 +117,52 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
         <label className="text-xs text-gray-600 uppercase tracking-wider block mb-2">
           Destruction Algorithm
         </label>
-        <div className="space-y-1.5">
-          {ALGORITHMS.map((algo) => (
-            <button
-              key={algo.id}
-              disabled={isActive}
-              onClick={() => {
-                setSelectedAlgo(algo.id);
-                setConfirmed(false);
-              }}
-              className={`w-full text-left p-2.5 rounded-lg border transition-all ${
-                selectedAlgo === algo.id
-                  ? "border-[#00d4ff]/50 bg-[#00d4ff]/5"
-                  : "border-[#1a1a2e] hover:border-[#1a1a2e]/80 bg-[#0d0d1a]"
-              } disabled:opacity-40`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2 min-w-0">
-                  <span className="text-base leading-none mt-0.5 shrink-0">{algo.icon}</span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-white text-xs font-medium">{algo.name}</span>
-                      <span className={`text-[9px] font-medium ${algo.recommendationColor}`}>
-                        {algo.recommendation}
-                      </span>
-                    </div>
-                    <div className={`text-[9px] font-medium mt-0.5 ${algo.recommendationColor} opacity-70`}>
-                      {algo.forWhom}
-                    </div>
-                    <div className="text-gray-500 text-[10px] leading-relaxed mt-1">{algo.desc}</div>
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
+        <div className="space-y-1">
+          {ALGORITHMS.map((algo) => {
+            const isSelected = selectedAlgo === algo.id;
+            return (
+              <button
+                key={algo.id}
+                disabled={isActive}
+                onClick={() => { setSelectedAlgo(algo.id); setConfirmed(false); }}
+                className={`w-full text-left rounded-lg border transition-all duration-150 ${
+                  isSelected
+                    ? "border-[#00d4ff]/40 bg-[#00d4ff]/5"
+                    : "border-[#1a1a2e] bg-[#0d0d1a] hover:border-[#2a2a3e]"
+                } disabled:opacity-40`}
+              >
+                {/* Always-visible compact row */}
+                <div className="flex items-center gap-2 px-2.5 py-2">
+                  <span className="text-sm leading-none shrink-0">{algo.icon}</span>
+                  <span className={`text-xs font-medium shrink-0 ${isSelected ? "text-white" : "text-gray-400"}`}>
+                    {algo.name}
+                  </span>
+                  <span className={`text-[9px] font-medium truncate ${algo.recommendationColor}`}>
+                    {algo.recommendation}
+                  </span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    className={`ml-auto shrink-0 text-[9px] px-1.5 py-0.5 rounded border ${
                       algo.safe
-                        ? "text-[#00d4ff]/60 border-[#00d4ff]/20"
-                        : "text-yellow-500/60 border-yellow-500/20"
+                        ? "text-[#00d4ff]/50 border-[#00d4ff]/20"
+                        : "text-yellow-500/50 border-yellow-500/20"
                     }`}
                   >
                     {algo.passes}P
                   </span>
                 </div>
-              </div>
-            </button>
-          ))}
+
+                {/* Expanded detail — only for selected */}
+                {isSelected && (
+                  <div className="px-2.5 pb-2.5 pt-0 border-t border-[#00d4ff]/10 mt-0">
+                    <p className={`text-[9px] font-semibold mt-2 mb-1 ${algo.recommendationColor} opacity-80`}>
+                      {algo.forWhom}
+                    </p>
+                    <p className="text-[10px] text-gray-500 leading-relaxed">{algo.desc}</p>
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
