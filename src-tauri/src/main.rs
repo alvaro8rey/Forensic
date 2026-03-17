@@ -5,13 +5,10 @@ mod modules;
 
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::thread;
-use std::collections::HashMap;
-
-use crossbeam_channel::{unbounded, Receiver};
-use serde_json::Value;
-use tauri::{AppHandle, Manager, State, Window};
+use crossbeam_channel::unbounded;
+use tauri::{State, Window};
 use tracing::{error, info};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 use modules::{
     carver::FileCarver,
@@ -45,7 +42,7 @@ impl Default for AppState {
 
 /// List all available disks with S.M.A.R.T. health info
 #[tauri::command]
-async fn list_disks(state: State<'_, AppState>) -> Result<Vec<DiskInfo>, String> {
+async fn list_disks(_state: State<'_, AppState>) -> Result<Vec<DiskInfo>, String> {
     info!("Command: list_disks");
     let disks = SmartReader::list_disks();
     Ok(disks)

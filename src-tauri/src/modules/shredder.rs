@@ -250,13 +250,6 @@ impl Shredder {
     /// to the SSD controller, triggering full NAND flash erasure.
     #[cfg(target_os = "windows")]
     fn nvme_sanitize(&self) -> Result<()> {
-        use windows_sys::Win32::System::Ioctl::{
-            IOCTL_STORAGE_PROTOCOL_COMMAND,
-            STORAGE_PROTOCOL_COMMAND,
-            STORAGE_PROTOCOL_TYPE,
-        };
-        use windows_sys::Win32::Foundation::HANDLE;
-
         info!("Sending NVMe Sanitize command to: {}", self.options.target_path);
 
         // Open device with write access and IOCTL privileges

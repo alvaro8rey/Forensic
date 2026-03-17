@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use crossbeam_channel::{bounded, Sender};
+use crossbeam_channel::Sender;
 use rayon::prelude::*;
 use tracing::{debug, info};
 
@@ -111,16 +111,17 @@ impl NvmeAsyncReader {
         start_offset: u64,
         end_offset: u64,
     ) -> Result<()> {
-        use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, TRUE};
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::Storage::FileSystem::{
             CreateFileW, ReadFile, FILE_FLAG_NO_BUFFERING,
             FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE,
-            GENERIC_READ, OPEN_EXISTING,
+            OPEN_EXISTING,
         };
         use windows_sys::Win32::System::IO::{
-            CreateIoCompletionPort, GetQueuedCompletionStatus,
-            PostQueuedCompletionStatus, OVERLAPPED,
+            CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
         };
+        // GENERIC_READ = 0x80000000 (WinNT.h)
+        const GENERIC_READ: u32 = 0x8000_0000;
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
 

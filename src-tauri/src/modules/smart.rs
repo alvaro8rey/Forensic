@@ -1,9 +1,7 @@
 /// S.M.A.R.T. (Self-Monitoring, Analysis, and Reporting Technology) Interface
 /// Queries disk health attributes via sysinfo + platform-specific IOCTLs.
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use sysinfo::{Disk, DiskKind, Disks};
-use tracing::{info, warn};
 
 use super::types::{DiskInfo, HealthStatus, SmartHealth};
 
@@ -125,7 +123,7 @@ impl SmartReader {
             anyhow::bail!("Cannot open drive handle for SMART query");
         }
 
-        let mut query = STORAGE_PROPERTY_QUERY {
+        let query = STORAGE_PROPERTY_QUERY {
             PropertyId: StorageDeviceProperty,
             QueryType: PropertyStandardQuery,
             AdditionalParameters: [0],
