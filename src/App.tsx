@@ -238,8 +238,9 @@ export default function App() {
       {/* ── Body ── */}
       <main className="relative z-10 flex h-[calc(100vh-49px)]">
         {/* ── Sidebar ── */}
-        <aside className="w-64 shrink-0 border-r border-[#1a1a2e] p-4 flex flex-col gap-4 overflow-y-auto">
-          <div className="flex items-center justify-between">
+        <aside className="w-60 shrink-0 border-r border-[#1a1a2e] flex flex-col">
+          {/* Header — fixed, not scrollable */}
+          <div className="px-4 pt-4 pb-2 shrink-0 flex items-center justify-between">
             <div>
               <span className="text-[10px] text-gray-600 uppercase tracking-wider">
                 Storage Devices
@@ -257,53 +258,52 @@ export default function App() {
             </button>
           </div>
 
-          <DiskSelector
-            disks={disks}
-            selected={selectedDisk}
-            onSelect={setSelectedDisk}
-            loading={disksLoading}
-          />
+          {/* Disk list — scrollable */}
+          <div className="flex-1 overflow-y-auto px-4 pb-2">
+            <DiskSelector
+              disks={disks}
+              selected={selectedDisk}
+              onSelect={setSelectedDisk}
+              loading={disksLoading}
+            />
+            {disks.length === 0 && !disksLoading && (
+              <button
+                onClick={loadDisks}
+                className="w-full mt-2 py-2 text-xs rounded-lg border border-[#1a1a2e] text-gray-600 hover:border-[#00d4ff]/30 hover:text-[#00d4ff] transition-all"
+              >
+                Enumerate Devices
+              </button>
+            )}
+          </div>
 
-          {disks.length === 0 && !disksLoading && (
-            <button
-              onClick={loadDisks}
-              className="w-full py-2 text-xs rounded-lg border border-[#1a1a2e] text-gray-600 hover:border-[#00d4ff]/30 hover:text-[#00d4ff] transition-all"
-            >
-              Enumerate Devices
-            </button>
-          )}
-
-          {/* Divider */}
-          <div className="border-t border-[#1a1a2e]" />
-
-          {/* Stats */}
-          <div className="space-y-2">
-            <span className="text-[10px] text-gray-600 uppercase tracking-wider">
+          {/* Session Stats — sticky at bottom, always visible */}
+          <div className="shrink-0 border-t border-[#1a1a2e] px-4 py-3 space-y-1.5">
+            <span className="text-[9px] text-gray-700 uppercase tracking-wider">
               Session Stats
             </span>
             <div className="space-y-1">
               {[
                 {
                   label: "Files Found",
-                  value: recoveredFiles.length,
-                  color: "text-[#00d4ff]",
+                  value: recoveredFiles.length > 0 ? String(recoveredFiles.length) : "—",
+                  color: recoveredFiles.length > 0 ? "text-[#00d4ff]" : "text-gray-700",
                 },
                 {
-                  label: "Scan Progress",
+                  label: "Progress",
                   value: scanProgress
                     ? `${Math.round((scanProgress.bytes_scanned / Math.max(scanProgress.total_bytes, 1)) * 100)}%`
                     : "—",
                   color: "text-green-400",
                 },
                 {
-                  label: "Scan Speed",
-                  value: scanProgress
+                  label: "Speed",
+                  value: scanProgress && scanProgress.scan_speed_mb > 0
                     ? `${scanProgress.scan_speed_mb.toFixed(1)} MB/s`
                     : "—",
                   color: "text-yellow-400",
                 },
               ].map(({ label, value, color }) => (
-                <div key={label} className="flex justify-between text-xs">
+                <div key={label} className="flex justify-between text-[10px]">
                   <span className="text-gray-600">{label}</span>
                   <span className={`font-mono ${color}`}>{value}</span>
                 </div>
@@ -440,23 +440,63 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Progress bar */}
-              {scanState === "scanning" && scanProgress && (
-                <div className="space-y-1">
-                  <div className="h-1 bg-[#1a1a2e] rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-[#00d4ff]/40 to-[#00d4ff] transition-all duration-300"
-                      style={{
-                        width: `${Math.round(
-                          (scanProgress.bytes_scanned /
-                            Math.max(scanProgress.total_bytes, 1)) *
-                            100
-                        )}%`,
-                      }}
-                    />
+              {/* Rich scan progress card */}
+              {scanState === "scanning" && scanProgress && (() => {
+                const pct = scanProgress.total_bytes > 0
+                  ? Math.round((scanProgress.bytes_scanned / scanProgress.total_bytes) * 100)
+                  : 0;
+                const remaining = scanProgress.total_bytes - scanProgress.bytes_scanned;
+                const speedBps = scanProgress.scan_speed_mb * 1024 * 1024;
+                const etaSec = speedBps > 0 ? remaining / speedBps : null;
+                const fmtTime = (s: number) => {
+                  const m = Math.floor(s / 60);
+                  const sec = Math.floor(s % 60);
+                  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+                };
+                const fmtBytes = (b: number) =>
+                  b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(0)} MB` : `${(b / 1e3).toFixed(0)} KB`;
+
+                return (
+                  <div className="border border-[#1a1a2e] bg-[#08080f] rounded-lg p-3 space-y-2">
+                    {/* Progress bar */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-2 bg-[#1a1a2e] rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#00d4ff]/50 to-[#00d4ff] transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-[#00d4ff] font-mono text-xs shrink-0 w-9 text-right">{pct}%</span>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-4 gap-2 text-[10px]">
+                      <div>
+                        <div className="text-gray-700">Scanned</div>
+                        <div className="text-gray-300 font-mono">{fmtBytes(scanProgress.bytes_scanned)}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-700">Speed</div>
+                        <div className="text-yellow-400 font-mono">{scanProgress.scan_speed_mb.toFixed(1)} MB/s</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-700">ETA</div>
+                        <div className="text-green-400 font-mono">{etaSec !== null ? fmtTime(etaSec) : "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-700">Files</div>
+                        <div className="text-[#00d4ff] font-mono">{scanProgress.files_found}</div>
+                      </div>
+                    </div>
+
+                    {/* Elapsed + offset */}
+                    <div className="flex justify-between text-[9px] text-gray-700 font-mono">
+                      <span>Elapsed: {fmtTime(scanProgress.elapsed_seconds)}</span>
+                      <span>@ {scanProgress.current_offset_hex}</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Terminal */}
               <HexTerminal

@@ -1,13 +1,5 @@
 import React from "react";
-import {
-  HardDrive,
-  Zap,
-  Thermometer,
-  Activity,
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
-} from "lucide-react";
+import { HardDrive, Zap, Thermometer } from "lucide-react";
 import { DiskInfo } from "../types";
 
 interface Props {
@@ -17,32 +9,14 @@ interface Props {
   loading: boolean;
 }
 
-function HealthIcon({ status }: { status: string }) {
-  switch (status) {
-    case "Healthy":
-      return <CheckCircle size={14} className="text-[#00d4ff]" />;
-    case "Warning":
-      return <AlertTriangle size={14} className="text-yellow-400" />;
-    case "Critical":
-      return <XCircle size={14} className="text-red-500" />;
-    default:
-      return <Activity size={14} className="text-gray-500" />;
-  }
-}
-
-function HealthBar({ score }: { score: number }) {
+function UsageBar({ pct }: { pct: number }) {
   const color =
-    score >= 80
-      ? "#00d4ff"
-      : score >= 50
-      ? "#facc15"
-      : "#ef4444";
-
+    pct >= 80 ? "#ef4444" : pct >= 60 ? "#facc15" : "#00d4ff";
   return (
-    <div className="w-full h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden mt-1">
+    <div className="w-full h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden mt-1.5">
       <div
         className="h-full rounded-full transition-all duration-500"
-        style={{ width: `${score}%`, backgroundColor: color }}
+        style={{ width: `${pct}%`, backgroundColor: color }}
       />
     </div>
   );
@@ -70,90 +44,76 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
       <div className="text-gray-600 text-xs py-4 leading-relaxed">
         No devices detected.
         <br />
-        Click the refresh button above to enumerate storage devices.
+        Click the refresh button above.
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      <p className="text-[10px] text-gray-700 leading-relaxed">
-        Select a device to use it as target for scanning or shredding.
-      </p>
       {disks.map((disk) => {
         const isSelected = selected === disk.device_path;
         const usedPct =
           disk.total_bytes > 0
             ? Math.round((disk.used_bytes / disk.total_bytes) * 100)
             : 0;
-        const isPhysical = disk.file_system === "RAW";
 
         return (
           <button
             key={disk.device_path}
             onClick={() => onSelect(disk.device_path)}
-            title={`Device path: ${disk.device_path}\nClick to select for scanning or shredding`}
+            title={`${disk.device_path}\nClick to select`}
             className={`w-full text-left p-3 rounded-lg border transition-all duration-200 ${
               isSelected
                 ? "border-[#00d4ff] bg-[#00d4ff]/5 shadow-[0_0_12px_rgba(0,212,255,0.15)]"
                 : "border-[#1a1a2e] bg-[#0d0d1a] hover:border-[#00d4ff]/40"
             }`}
           >
+            {/* Row 1: Icon + Name + Temp */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 {disk.is_ssd ? (
-                  <Zap size={16} className="text-[#00d4ff]" title="Solid-State Drive (SSD)" />
+                  <Zap size={14} className="text-[#00d4ff] shrink-0" />
                 ) : (
-                  <HardDrive size={16} className="text-gray-400" title="Hard Disk Drive (HDD)" />
+                  <HardDrive size={14} className="text-gray-400 shrink-0" />
                 )}
-                <span className="text-white text-sm font-medium truncate max-w-[120px]">
+                <span className="text-white text-sm font-semibold truncate">
                   {disk.display_name}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
-                <HealthIcon status={disk.smart_health.overall_health} />
+              {disk.smart_health.temperature_celsius != null && (
                 <span
-                  className="text-xs text-gray-500"
-                  title={`S.M.A.R.T. health score: ${disk.smart_health.health_score}/100\n(based on available space and disk diagnostics)`}
+                  className="flex items-center gap-0.5 text-[10px] text-gray-500 shrink-0 ml-2"
+                  title="Drive temperature"
                 >
-                  {disk.smart_health.health_score}%
-                </span>
-              </div>
-            </div>
-
-            {/* Device path badge */}
-            <div className="mt-1.5 mb-1">
-              <span className="font-mono text-[9px] text-gray-700 bg-[#111] px-1.5 py-0.5 rounded border border-[#1a1a2e]">
-                {disk.device_path}
-              </span>
-              {isPhysical && (
-                <span className="ml-1 text-[9px] text-yellow-600 border border-yellow-900/40 px-1 py-0.5 rounded">
-                  RAW DISK
-                </span>
-              )}
-            </div>
-
-            <div className="mt-1 grid grid-cols-3 gap-2 text-xs text-gray-500">
-              <span title="Total storage capacity">{formatBytes(disk.total_bytes)}</span>
-              <span className="text-center" title="File system format">{disk.file_system}</span>
-              {disk.smart_health.temperature_celsius != null ? (
-                <span className="flex items-center justify-end gap-0.5" title="Drive temperature">
-                  <Thermometer size={10} />
+                  <Thermometer size={9} />
                   {disk.smart_health.temperature_celsius}°C
                 </span>
-              ) : (
-                <span className="text-right">—</span>
               )}
             </div>
 
-            <HealthBar score={disk.smart_health.health_score} />
+            {/* Row 2: Capacity + FS + device path */}
+            <div className="flex items-center justify-between mt-1.5 text-[10px] text-gray-600">
+              <span>{formatBytes(disk.total_bytes)} · {disk.file_system}</span>
+              <span className="font-mono text-gray-700">{disk.device_path}</span>
+            </div>
 
-            <div className="flex justify-between mt-1 text-[10px] text-gray-600">
-              <span title="Self-Monitoring, Analysis and Reporting Technology — disk reliability indicator">
-                S.M.A.R.T. Health
-              </span>
-              <span title={`${formatBytes(disk.used_bytes)} used out of ${formatBytes(disk.total_bytes)}`}>
-                Used: {usedPct}%
+            {/* Usage bar */}
+            <UsageBar pct={usedPct} />
+
+            {/* Row 3: Usage label */}
+            <div className="flex justify-between mt-1 text-[9px] text-gray-700">
+              <span>Storage usage</span>
+              <span
+                className={
+                  usedPct >= 80
+                    ? "text-red-400"
+                    : usedPct >= 60
+                    ? "text-yellow-400"
+                    : "text-[#00d4ff]/60"
+                }
+              >
+                {usedPct}% used
               </span>
             </div>
           </button>

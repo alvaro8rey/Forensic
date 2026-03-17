@@ -64,17 +64,15 @@ impl SmartReader {
         }
 
         // On Windows, also add raw physical drives (\\.\PhysicalDriveN)
-        #[cfg(target_os = "windows")]
-        {
-            let physical_drives = Self::enumerate_physical_drives_windows();
-            result.extend(physical_drives);
-        }
+        // Disabled: physical drives have 0 B reported and confuse the user.
+        // Volumes (C:, D:, etc.) are sufficient for all scan/shred operations.
+        // #[cfg(target_os = "windows")]
+        // { result.extend(Self::enumerate_physical_drives_windows()); }
 
         result
     }
 
     fn read_smart_attributes(disk: &Disk) -> SmartHealth {
-        // Base health from available space ratio
         let total = disk.total_space();
         let available = disk.available_space();
         let used_ratio = if total > 0 {
@@ -83,14 +81,21 @@ impl SmartReader {
             0.0
         };
 
-        // Platform-specific SMART reading
+        // Always derive health_score from actual used space so the bar is accurate.
+        // We try to read temperature from the SMART IOCTL and merge it in.
+        let base = Self::estimated_health(used_ratio);
+
         #[cfg(target_os = "windows")]
         {
-            Self::read_smart_windows(disk).unwrap_or_else(|_| Self::estimated_health(used_ratio))
+            if let Ok(smart) = Self::read_smart_windows(disk) {
+                return SmartHealth {
+                    temperature_celsius: smart.temperature_celsius,
+                    ..base
+                };
+            }
         }
 
-        #[cfg(not(target_os = "windows"))]
-        Self::estimated_health(used_ratio)
+        base
     }
 
     fn estimated_health(used_ratio: f64) -> SmartHealth {
