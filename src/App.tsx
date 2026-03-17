@@ -20,7 +20,7 @@ import { HexTerminal, buildLogEntry } from "./components/HexTerminal";
 import { RecoveryTable } from "./components/RecoveryTable";
 import { ShredPanel } from "./components/ShredPanel";
 import { useTauriEvents } from "./hooks/useTauriEvents";
-import i18n, { SUPPORTED_LANGUAGES, LangCode } from "./i18n";
+import { SUPPORTED_LANGUAGES, LangCode } from "./i18n";
 import {
   AppView,
   DiskInfo,
@@ -33,7 +33,7 @@ import {
 } from "./types";
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [view, setView] = useState<AppView>("dashboard");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
 
