@@ -1,0 +1,175 @@
+{
+  "app": {
+    "title": "Aeon Data Systems",
+    "subtitle": "Recuperación Forense y Destructor de Grado Militar",
+    "version": "MOTOR CENTRAL v1.0.0"
+  },
+  "nav": {
+    "dashboard": "Panel",
+    "hunter": "El Cazador",
+    "oblivion": "El Olvido"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "language": "Idioma",
+    "english": "Inglés",
+    "spanish": "Español"
+  },
+  "sidebar": {
+    "title": "Dispositivos de Almacenamiento",
+    "hint": "Selecciona uno para escanear o destruir",
+    "refresh": "Actualizar dispositivos",
+    "enumerate": "Enumerar Dispositivos",
+    "stats": {
+      "title": "Estadísticas de Sesión",
+      "filesFound": "Archivos Encontrados",
+      "progress": "Progreso",
+      "speed": "Velocidad"
+    }
+  },
+  "disk": {
+    "enumerating": "Enumerando dispositivos...",
+    "noDevices": "No se detectaron dispositivos.",
+    "noDevicesHint": "Haz clic en el botón de actualizar.",
+    "temperature": "Temperatura del disco",
+    "usage": "Uso de almacenamiento",
+    "used": "{{pct}}% usado"
+  },
+  "dashboard": {
+    "title": "Resumen del Sistema",
+    "description": "<strong>Aeon Data Systems</strong> es una herramienta de recuperación forense y destrucción segura de datos. Usa <hunter>El Cazador</hunter> para escanear un dispositivo en busca de archivos eliminados u ocultos, y <oblivion>El Olvido</oblivion> para destruir permanentemente datos confidenciales. Empieza seleccionando un dispositivo en la barra lateral.",
+    "totalDevices": "Total de Dispositivos",
+    "recoveredFiles": "Archivos Recuperados",
+    "scanStatus": "Estado del Escaneo",
+    "status": {
+      "active": "Activo",
+      "done": "Completado",
+      "idle": "Inactivo"
+    },
+    "quickActions": "Acciones Rápidas",
+    "startScan": "Iniciar Escaneo Forense",
+    "startScanDesc": "Recuperar archivos eliminados mediante extracción por sectores",
+    "secureShred": "Destrucción Segura",
+    "secureShredDesc": "Destruir datos permanentemente (DoD / Gutmann / NVMe)"
+  },
+  "hunter": {
+    "title": "El Cazador — Recuperación Forense",
+    "description": "Lee el dispositivo seleccionado sector a sector, buscando firmas de archivos JPEG, PNG, GIF, PDF, ZIP, DOC, EXE, MP4, MP3, AVI, RAR y SQLite. Los archivos eliminados u ocultos se listan a continuación para su recuperación.",
+    "selectFirst": "← Selecciona un dispositivo en la barra lateral primero.",
+    "startScan": "Iniciar Escaneo",
+    "rescan": "Re-escanear",
+    "cancel": "Cancelar",
+    "progress": {
+      "scanned": "Escaneado",
+      "speed": "Velocidad",
+      "eta": "T. restante",
+      "files": "Archivos",
+      "elapsed": "Transcurrido"
+    },
+    "scanComplete": "✓ Escaneo completado. {{count}} archivo(s) recuperado(s).",
+    "scanError": "✗ Error: {{error}}"
+  },
+  "terminal": {
+    "title": "Monitor de Flujo Hex",
+    "live": "EN VIVO",
+    "awaiting": "Esperando comando de escaneo...",
+    "signatureMatch": "FIRMA DETECTADA — {{count}} archivos encontrados",
+    "scanning": "Escaneando... {{speed}} MB/s",
+    "offset": "OFFSET",
+    "speed": "VELOC.",
+    "files": "ARCHIVOS",
+    "time": "TIEMPO"
+  },
+  "recovery": {
+    "filterPlaceholder": "Filtrar por tipo (JPEG, PDF, MP4…)",
+    "count": "{{shown}} / {{total}} archivos",
+    "columns": {
+      "id": "#",
+      "type": "Tipo",
+      "size": "Tamaño",
+      "offset": "Offset",
+      "recovery": "Recuperación",
+      "flags": "Indicadores",
+      "actions": "Acciones"
+    },
+    "loading": "Escaneando sectores sin procesar...",
+    "empty": "No se encontraron archivos. Selecciona un dispositivo e inicia el escaneo.",
+    "fragments": "{{count}} fragmentos",
+    "overwritten": "Sector parcialmente sobreescrito",
+    "intact": "Sector intacto",
+    "preview": "Vista previa",
+    "recoverFile": "Recuperar archivo",
+    "recoveredMsg": "Recuperado {{fileType}} ({{kb}} KB) → {{path}}"
+  },
+  "preview": {
+    "title": "{{type}} — vista previa (hasta 5 MB)",
+    "close": "×"
+  },
+  "oblivion": {
+    "title": "El Olvido — Destructor de Grado Militar",
+    "description": "Sobreescribe un archivo o unidad completa con datos aleatorios criptográficamente seguros usando DoD 5220.22-M, Gutmann 35 pasadas, o sanitización NVMe por hardware. Introduce una ruta de archivo o de dispositivo (p.ej. {{path}}).",
+    "selected": "— seleccionado:"
+  },
+  "shred": {
+    "algorithmLabel": "Algoritmo de Destrucción",
+    "algorithms": {
+      "DoD5220": {
+        "name": "DoD 5220.22-M",
+        "recommendation": "✅ Recomendado para la mayoría",
+        "forWhom": "Ideal para: archivos, USB, discos HDD",
+        "desc": "3 pasadas: ceros → unos → aleatorio. Estándar oficial del Departamento de Defensa de EE.UU. (NISPOM). Funciona en HDD y archivos regulares. Equilibrio entre seguridad y velocidad — unos minutos por GB."
+      },
+      "Gutmann35": {
+        "name": "Gutmann 35 Pasadas",
+        "recommendation": "🔬 Excesivo — solo para paranoia en HDD",
+        "forWhom": "Ideal para: HDD antiguos con datos sensibles. NO para SSD.",
+        "desc": "35 pasadas basadas en el artículo de Peter Gutmann de 1996, orientadas a residuos de codificación magnética en platos HDD antiguos. Los patrones extra son innecesarios en HDD modernos e inútiles en SSD, pero ofrecen máxima garantía. Espera horas por GB."
+      },
+      "RandomSingle": {
+        "name": "Aleatorio (1 Pasada)",
+        "recommendation": "⚡ Ideal para SSD y borrado rápido",
+        "forWhom": "Ideal para: SSD, NVMe, memorias USB, archivos individuales",
+        "desc": "Una sola pasada de datos aleatorios criptográficamente seguros (ChaCha20 CSPRNG). Investigaciones modernas demuestran que una pasada aleatoria basta para prevenir la recuperación en SSD y flash. Opción más rápida — normalmente segundos o minutos por GB."
+      },
+      "NvmeSanitize": {
+        "name": "Sanitización NVMe",
+        "recommendation": "💡 Ideal para borrado total de SSD/NVMe",
+        "forWhom": "Ideal para: SSD NVMe, M.2 — solo unidad completa",
+        "desc": "Envía un comando Sanitize directamente al controlador NVMe. El firmware borra todos los bloques NAND, incluidas las reservas de nivelación de desgaste invisibles al software. El método más completo para SSD. Requiere administrador y ruta de dispositivo como \\.\\PhysicalDrive0."
+      },
+      "NvmeFormat": {
+        "name": "Formato NVM NVMe",
+        "recommendation": "🔧 Alternativa a Sanitize en algunos NVMe",
+        "forWhom": "Ideal para: NVMe donde Sanitize no está disponible",
+        "desc": "Emite el comando NVMe Format NVM (Borrado de Datos de Usuario) al controlador, reiniciando el espacio de nombres. Más rápido que Sanitize en algunos controladores, ligeramente menos completo. También requiere administrador y ruta de dispositivo sin procesar."
+      }
+    },
+    "targetLabel": "Destino — ruta de archivo o dispositivo",
+    "useDisk": "Usar {{path}}",
+    "browseTitle": "Seleccionar archivo o unidad a destruir",
+    "placeholder": "\\\\.\\C:  o  C:\\ruta\\al\\archivo.docx",
+    "fileHelp": "Para un <1>archivo</1>: introduce la ruta completa (p.ej. <2>F:\\secreto.docx</2>). El archivo se sobreescribirá y luego será <1>eliminado</1>.",
+    "driveHelp": "Para una <1>unidad completa</1>: usa una ruta de dispositivo como <2>\\\\.\\C:</2> o <2>\\\\.\\PhysicalDrive0</2> (requiere administrador).",
+    "verify": "Verificar última pasada (lectura bit a bit)",
+    "warning": {
+      "title": "ACCIÓN IRREVERSIBLE",
+      "body": "Todos los datos en <1>{{path}}</1> serán destruidos permanentemente usando <2>{{algo}}</2>. Esta acción no se puede deshacer.",
+      "confirm": "Confirmo que estos datos serán destruidos permanentemente"
+    },
+    "progress": {
+      "pass": "Pasada {{current}}/{{total}} — {{algo}}"
+    },
+    "complete": {
+      "title": "Destrucción completada.",
+      "verified": "✓ Verificado",
+      "body": "Todas las pasadas finalizadas. Para archivos: contenido sobreescrito y archivo eliminado. Los datos son irrecuperables."
+    },
+    "error": {
+      "title": "Error en la operación de destrucción",
+      "hint": "Causas comunes: la ruta no existe, permisos insuficientes (ejecutar como administrador para rutas de dispositivo) o el disco está en uso."
+    },
+    "cancel": "Cancelar",
+    "newOperation": "Nueva Operación",
+    "execute": "Ejecutar Destrucción"
+  }
+}

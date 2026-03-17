@@ -1,0 +1,175 @@
+{
+  "app": {
+    "title": "Aeon Data Systems",
+    "subtitle": "Forensic Recovery & Military-Grade Shredder",
+    "version": "CORE ENGINE v1.0.0"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "hunter": "The Hunter",
+    "oblivion": "The Oblivion"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "english": "English",
+    "spanish": "Spanish"
+  },
+  "sidebar": {
+    "title": "Storage Devices",
+    "hint": "Select one to scan or shred",
+    "refresh": "Refresh devices",
+    "enumerate": "Enumerate Devices",
+    "stats": {
+      "title": "Session Stats",
+      "filesFound": "Files Found",
+      "progress": "Progress",
+      "speed": "Speed"
+    }
+  },
+  "disk": {
+    "enumerating": "Enumerating devices...",
+    "noDevices": "No devices detected.",
+    "noDevicesHint": "Click the refresh button above.",
+    "temperature": "Drive temperature",
+    "usage": "Storage usage",
+    "used": "{{pct}}% used"
+  },
+  "dashboard": {
+    "title": "System Overview",
+    "description": "<strong>Aeon Data Systems</strong> is a forensic recovery and secure data-destruction tool. Use <hunter>The Hunter</hunter> to scan a storage device for deleted or hidden files, and <oblivion>The Oblivion</oblivion> to permanently destroy sensitive data beyond recovery. Start by selecting a storage device from the left sidebar.",
+    "totalDevices": "Total Devices",
+    "recoveredFiles": "Recovered Files",
+    "scanStatus": "Scan Status",
+    "status": {
+      "active": "Active",
+      "done": "Done",
+      "idle": "Idle"
+    },
+    "quickActions": "Quick Actions",
+    "startScan": "Start Forensic Scan",
+    "startScanDesc": "Recover deleted files via sector-level carving",
+    "secureShred": "Secure Shred",
+    "secureShredDesc": "Permanently destroy data (DoD / Gutmann / NVMe)"
+  },
+  "hunter": {
+    "title": "The Hunter — Forensic Recovery",
+    "description": "Reads the selected device sector by sector, searching for JPEG, PNG, GIF, PDF, ZIP, DOC, EXE, MP4, MP3, AVI, RAR and SQLite file signatures. Deleted or hidden files are listed below for recovery.",
+    "selectFirst": "← Select a device from the sidebar first.",
+    "startScan": "Start Scan",
+    "rescan": "Re-scan",
+    "cancel": "Cancel",
+    "progress": {
+      "scanned": "Scanned",
+      "speed": "Speed",
+      "eta": "ETA",
+      "files": "Files",
+      "elapsed": "Elapsed"
+    },
+    "scanComplete": "✓ Scan complete. {{count}} file(s) recovered.",
+    "scanError": "✗ Error: {{error}}"
+  },
+  "terminal": {
+    "title": "Hex Stream Monitor",
+    "live": "LIVE",
+    "awaiting": "Awaiting scan command...",
+    "signatureMatch": "FILE SIGNATURE MATCHED — {{count}} files found",
+    "scanning": "Scanning... {{speed}} MB/s",
+    "offset": "OFFSET",
+    "speed": "SPEED",
+    "files": "FILES",
+    "time": "TIME"
+  },
+  "recovery": {
+    "filterPlaceholder": "Filter by type (JPEG, PDF, MP4…)",
+    "count": "{{shown}} / {{total}} files",
+    "columns": {
+      "id": "#",
+      "type": "Type",
+      "size": "Size",
+      "offset": "Offset",
+      "recovery": "Recovery",
+      "flags": "Flags",
+      "actions": "Actions"
+    },
+    "loading": "Scanning raw sectors...",
+    "empty": "No files found. Select a device and start scan.",
+    "fragments": "{{count}} fragments",
+    "overwritten": "Sector partially overwritten",
+    "intact": "Sector intact",
+    "preview": "Preview",
+    "recoverFile": "Recover file",
+    "recoveredMsg": "Recovered {{fileType}} ({{kb}} KB) → {{path}}"
+  },
+  "preview": {
+    "title": "{{type}} — preview (up to 5 MB)",
+    "close": "×"
+  },
+  "oblivion": {
+    "title": "The Oblivion — Military-Grade Shredder",
+    "description": "Overwrites a file or entire drive with cryptographically random data using DoD 5220.22-M, Gutmann 35-pass, or NVMe hardware sanitize. Enter a file path or a device path (e.g. {{path}}).",
+    "selected": "— selected:"
+  },
+  "shred": {
+    "algorithmLabel": "Destruction Algorithm",
+    "algorithms": {
+      "DoD5220": {
+        "name": "DoD 5220.22-M",
+        "recommendation": "✅ Recommended for most users",
+        "forWhom": "Best for: files, USB drives, HDD disks",
+        "desc": "3 passes: zeros → ones → random. Official US Department of Defense standard (NISPOM). Works on HDDs and regular files. Balance of security and speed — takes a few minutes per GB."
+      },
+      "Gutmann35": {
+        "name": "Gutmann 35-Pass",
+        "recommendation": "🔬 Overkill — for HDD paranoia only",
+        "forWhom": "Best for: old HDDs with sensitive data. NOT for SSDs.",
+        "desc": "35 passes based on Peter Gutmann's 1996 paper targeting magnetic encoding residues on older HDD platters. The extra patterns are unnecessary on modern HDDs and useless on SSDs, but provide maximum psychological assurance. Expect hours per GB."
+      },
+      "RandomSingle": {
+        "name": "Random (1-Pass)",
+        "recommendation": "⚡ Best for SSDs and quick file deletion",
+        "forWhom": "Best for: SSDs, NVMe, USB flash, individual files",
+        "desc": "Single pass of cryptographically strong random data (ChaCha20 CSPRNG). Modern research shows one random pass is sufficient to prevent recovery on SSDs and flash storage. Fastest option — typically seconds to minutes per GB."
+      },
+      "NvmeSanitize": {
+        "name": "NVMe Sanitize",
+        "recommendation": "💡 Best for NVMe/SSD full-drive wipe",
+        "forWhom": "Best for: NVMe SSDs, M.2 drives — full drive only",
+        "desc": "Sends a hardware Sanitize command directly to the NVMe controller. The drive's firmware erases every NAND flash block — including wear-leveling reserves invisible to software. This is the most thorough method for SSDs. Requires administrator and a device path like \\.\\PhysicalDrive0."
+      },
+      "NvmeFormat": {
+        "name": "NVMe Format NVM",
+        "recommendation": "🔧 Alternative to Sanitize on some NVMe drives",
+        "forWhom": "Best for: NVMe drives where Sanitize is not supported",
+        "desc": "Issues the NVMe Format NVM command (User Data Erase) to the controller, resetting the drive namespace. Faster than Sanitize on some controllers, slightly less thorough. Also requires administrator and a raw device path."
+      }
+    },
+    "targetLabel": "Target — file path or device path",
+    "useDisk": "Use {{path}}",
+    "browseTitle": "Select file or drive to shred",
+    "placeholder": "\\\\.\\C:  or  C:\\path\\to\\file.docx",
+    "fileHelp": "For a <1>file</1>: enter the full path (e.g. <2>F:\\secret.docx</2>). The file will be overwritten and then <1>deleted</1>.",
+    "driveHelp": "For an <1>entire drive</1>: use a device path like <2>\\\\.\\C:</2> or <2>\\\\.\\PhysicalDrive0</2> (requires administrator).",
+    "verify": "Verify last pass (bit-level read-back)",
+    "warning": {
+      "title": "IRREVERSIBLE ACTION",
+      "body": "All data at <1>{{path}}</1> will be permanently destroyed using <2>{{algo}}</2>. This cannot be undone.",
+      "confirm": "I confirm this data will be permanently destroyed"
+    },
+    "progress": {
+      "pass": "Pass {{current}}/{{total}} — {{algo}}"
+    },
+    "complete": {
+      "title": "Destruction complete.",
+      "verified": "✓ Verified",
+      "body": "All passes finished. For files: content overwritten and file deleted. Data is unrecoverable."
+    },
+    "error": {
+      "title": "Shred operation failed",
+      "hint": "Common causes: path does not exist, insufficient permissions (run as administrator for device paths), or the drive is in use."
+    },
+    "cancel": "Cancel",
+    "newOperation": "New Operation",
+    "execute": "Execute Destruction"
+  }
+}

@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/tauri";
 import { save } from "@tauri-apps/api/dialog";
 import {
@@ -11,6 +12,7 @@ import {
   Cpu,
   Database,
   Activity,
+  Globe,
 } from "lucide-react";
 
 import { DiskSelector } from "./components/DiskSelector";
@@ -18,10 +20,12 @@ import { HexTerminal, buildLogEntry } from "./components/HexTerminal";
 import { RecoveryTable } from "./components/RecoveryTable";
 import { ShredPanel } from "./components/ShredPanel";
 import { useTauriEvents } from "./hooks/useTauriEvents";
+import i18n, { SUPPORTED_LANGUAGES, LangCode } from "./i18n";
 import {
   AppView,
   DiskInfo,
   RecoveredFile,
+  RecoverResult,
   ScanProgress,
   ScanState,
   ShredProgress,
@@ -29,7 +33,9 @@ import {
 } from "./types";
 
 export default function App() {
+  const { t } = useTranslation();
   const [view, setView] = useState<AppView>("dashboard");
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
 
   // Disk state
   const [disks, setDisks] = useState<DiskInfo[]>([]);
@@ -55,12 +61,12 @@ export default function App() {
   useTauriEvents({
     onScanProgress: useCallback((p: ScanProgress) => {
       setScanProgress(p);
-      const entry = buildLogEntry(p, prevFilesRef.current);
+      const entry = buildLogEntry(p, prevFilesRef.current, t);
       if (entry) {
         setTerminalLogs((l) => [...l.slice(-200), entry]);
         prevFilesRef.current = p.files_found;
       }
-    }, []),
+    }, [t]),
 
     onScanComplete: useCallback((files: RecoveredFile[]) => {
       setRecoveredFiles(files);
@@ -70,11 +76,11 @@ export default function App() {
         {
           timestamp: new Date().toTimeString().slice(0, 8),
           offset: "—",
-          message: `✓ Scan complete. ${files.length} file(s) recovered.`,
+          message: t("hunter.scanComplete", { count: files.length }),
           type: "found" as const,
         },
       ]);
-    }, []),
+    }, [t]),
 
     onScanError: useCallback((err: string) => {
       setScanState("error");
@@ -83,11 +89,11 @@ export default function App() {
         {
           timestamp: new Date().toTimeString().slice(0, 8),
           offset: "—",
-          message: `✗ Error: ${err}`,
+          message: t("hunter.scanError", { error: err }),
           type: "error" as const,
         },
       ]);
-    }, []),
+    }, [t]),
 
     onShredProgress: useCallback((p: ShredProgress) => {
       setShredProgress(p);
@@ -134,13 +140,18 @@ export default function App() {
   async function recoverFile(file: RecoveredFile) {
     const dest = await save({
       defaultPath: `recovered_${file.file_type.toLowerCase()}_${file.id}.${file.file_type.toLowerCase()}`,
-      title: "Save Recovered File",
+      title: t("recovery.recoverFile"),
     });
     if (!dest) return;
     try {
-      const msg = await invoke<string>("recover_file", {
+      const result = await invoke<RecoverResult>("recover_file", {
         fileId: file.id,
         destinationPath: dest,
+      });
+      const msg = t(result.key, {
+        fileType: result.file_type,
+        kb: result.kb,
+        path: result.path,
       });
       setTerminalLogs((l) => [
         ...l,
@@ -190,6 +201,11 @@ export default function App() {
     setShredError(null);
   }
 
+  function switchLanguage(code: LangCode) {
+    i18n.changeLanguage(code);
+    setLangMenuOpen(false);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div
@@ -214,10 +230,10 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-sm font-bold tracking-widest uppercase text-white">
-              Aeon Data Systems
+              {t("app.title")}
             </h1>
             <p className="text-[10px] text-[#00d4ff]/50 tracking-widest uppercase">
-              Forensic Recovery &amp; Military-Grade Shredder
+              {t("app.subtitle")}
             </p>
           </div>
         </div>
@@ -225,11 +241,11 @@ export default function App() {
         <nav className="flex items-center gap-1">
           {(
             [
-              { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
-              { id: "hunter", label: "The Hunter", Icon: Search },
-              { id: "oblivion", label: "The Oblivion", Icon: ShieldOff },
+              { id: "dashboard", labelKey: "nav.dashboard", Icon: LayoutDashboard },
+              { id: "hunter",    labelKey: "nav.hunter",    Icon: Search },
+              { id: "oblivion",  labelKey: "nav.oblivion",  Icon: ShieldOff },
             ] as const
-          ).map(({ id, label, Icon }) => (
+          ).map(({ id, labelKey, Icon }) => (
             <button
               key={id}
               onClick={() => setView(id)}
@@ -240,14 +256,53 @@ export default function App() {
               }`}
             >
               <Icon size={13} />
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 text-[10px] text-gray-700 font-mono">
-          <Activity size={11} className="text-green-500" />
-          CORE ENGINE v1.0.0
+        <div className="flex items-center gap-3">
+          {/* ── Language selector ── */}
+          <div className="relative">
+            <button
+              onClick={() => setLangMenuOpen((o) => !o)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-[#1a1a2e] text-gray-500 hover:text-[#00d4ff] hover:border-[#00d4ff]/30 transition-all"
+              title={t("settings.language")}
+            >
+              <Globe size={12} />
+              <span className="font-mono uppercase">
+                {i18n.language?.slice(0, 2) ?? "en"}
+              </span>
+            </button>
+            {langMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 w-36 bg-[#0d0d1a] border border-[#1a1a2e] rounded-lg shadow-xl z-50 overflow-hidden">
+                <div className="px-3 py-1.5 text-[9px] text-gray-600 uppercase tracking-wider border-b border-[#1a1a2e]">
+                  {t("settings.language")}
+                </div>
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => switchLanguage(lang.code)}
+                    className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between ${
+                      (i18n.language?.slice(0, 2) ?? "en") === lang.code
+                        ? "text-[#00d4ff] bg-[#00d4ff]/5"
+                        : "text-gray-400 hover:text-white hover:bg-[#1a1a2e]"
+                    }`}
+                  >
+                    <span>{lang.nativeLabel}</span>
+                    {(i18n.language?.slice(0, 2) ?? "en") === lang.code && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#00d4ff]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] text-gray-700 font-mono">
+            <Activity size={11} className="text-green-500" />
+            {t("app.version")}
+          </div>
         </div>
       </header>
 
@@ -255,20 +310,20 @@ export default function App() {
       <main className="relative z-10 flex h-[calc(100vh-49px)]">
         {/* ── Sidebar ── */}
         <aside className="w-60 shrink-0 border-r border-[#1a1a2e] flex flex-col">
-          {/* Header — fixed, not scrollable */}
+          {/* Header — fixed */}
           <div className="px-4 pt-4 pb-2 shrink-0 flex items-center justify-between">
             <div>
               <span className="text-[10px] text-gray-600 uppercase tracking-wider">
-                Storage Devices
+                {t("sidebar.title")}
               </span>
               <p className="text-[9px] text-gray-700 mt-0.5">
-                Select one to scan or shred
+                {t("sidebar.hint")}
               </p>
             </div>
             <button
               onClick={loadDisks}
               className="p-1 rounded hover:bg-[#1a1a2e] text-gray-600 hover:text-[#00d4ff] transition-colors"
-              title="Refresh devices"
+              title={t("sidebar.refresh")}
             >
               <RefreshCw size={12} className={disksLoading ? "animate-spin" : ""} />
             </button>
@@ -287,32 +342,32 @@ export default function App() {
                 onClick={loadDisks}
                 className="w-full mt-2 py-2 text-xs rounded-lg border border-[#1a1a2e] text-gray-600 hover:border-[#00d4ff]/30 hover:text-[#00d4ff] transition-all"
               >
-                Enumerate Devices
+                {t("sidebar.enumerate")}
               </button>
             )}
           </div>
 
-          {/* Session Stats — sticky at bottom, always visible */}
+          {/* Session Stats — sticky at bottom */}
           <div className="shrink-0 border-t border-[#1a1a2e] px-4 py-3 space-y-1.5">
             <span className="text-[9px] text-gray-700 uppercase tracking-wider">
-              Session Stats
+              {t("sidebar.stats.title")}
             </span>
             <div className="space-y-1">
               {[
                 {
-                  label: "Files Found",
+                  label: t("sidebar.stats.filesFound"),
                   value: recoveredFiles.length > 0 ? String(recoveredFiles.length) : "—",
                   color: recoveredFiles.length > 0 ? "text-[#00d4ff]" : "text-gray-700",
                 },
                 {
-                  label: "Progress",
+                  label: t("sidebar.stats.progress"),
                   value: scanProgress
                     ? `${Math.round((scanProgress.bytes_scanned / Math.max(scanProgress.total_bytes, 1)) * 100)}%`
                     : "—",
                   color: "text-green-400",
                 },
                 {
-                  label: "Speed",
+                  label: t("sidebar.stats.speed"),
                   value: scanProgress && scanProgress.scan_speed_mb > 0
                     ? `${scanProgress.scan_speed_mb.toFixed(1)} MB/s`
                     : "—",
@@ -329,41 +384,50 @@ export default function App() {
         </aside>
 
         {/* ── Main Content ── */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" onClick={() => langMenuOpen && setLangMenuOpen(false)}>
+
           {/* ── Dashboard ── */}
           {view === "dashboard" && (
             <div className="p-6 space-y-6">
               <div>
-                <h2 className="text-lg font-semibold text-white">System Overview</h2>
+                <h2 className="text-lg font-semibold text-white">{t("dashboard.title")}</h2>
                 <p className="text-xs text-gray-600 mt-1 leading-relaxed max-w-2xl">
-                  <strong className="text-gray-500">Aeon Data Systems</strong> is a forensic recovery and secure data-destruction tool.
-                  Use <span className="text-[#00d4ff]/70">The Hunter</span> to scan a storage device for deleted or hidden files,
-                  and <span className="text-red-400/70">The Oblivion</span> to permanently destroy sensitive data beyond recovery.
-                  Start by selecting a storage device from the left sidebar.
+                  <strong className="text-gray-500">{t("app.title")}</strong>{" "}
+                  {t("dashboard.title") === "System Overview"
+                    ? "is a forensic recovery and secure data-destruction tool. Use "
+                    : "es una herramienta de recuperación forense y destrucción segura de datos. Usa "}
+                  <span className="text-[#00d4ff]/70">{t("nav.hunter")}</span>
+                  {t("dashboard.title") === "System Overview"
+                    ? " to scan a storage device for deleted or hidden files, and "
+                    : " para escanear un dispositivo en busca de archivos eliminados u ocultos, y "}
+                  <span className="text-red-400/70">{t("nav.oblivion")}</span>
+                  {t("dashboard.title") === "System Overview"
+                    ? " to permanently destroy sensitive data beyond recovery. Start by selecting a storage device from the left sidebar."
+                    : " para destruir permanentemente datos confidenciales. Empieza seleccionando un dispositivo en la barra lateral."}
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 {[
                   {
-                    label: "Total Devices",
+                    label: t("dashboard.totalDevices"),
                     value: disks.length,
                     icon: Database,
                     color: "#00d4ff",
                   },
                   {
-                    label: "Recovered Files",
+                    label: t("dashboard.recoveredFiles"),
                     value: recoveredFiles.length,
                     icon: Search,
                     color: "#22c55e",
                   },
                   {
-                    label: "Scan Status",
+                    label: t("dashboard.scanStatus"),
                     value:
                       scanState === "scanning"
-                        ? "Active"
+                        ? t("dashboard.status.active")
                         : scanState === "complete"
-                        ? "Done"
-                        : "Idle",
+                        ? t("dashboard.status.done")
+                        : t("dashboard.status.idle"),
                     icon: Activity,
                     color: scanState === "scanning" ? "#facc15" : "#6b7280",
                   },
@@ -376,10 +440,7 @@ export default function App() {
                       <span className="text-xs text-gray-600">{label}</span>
                       <Icon size={16} style={{ color }} />
                     </div>
-                    <div
-                      className="text-3xl font-bold font-mono"
-                      style={{ color }}
-                    >
+                    <div className="text-3xl font-bold font-mono" style={{ color }}>
                       {value}
                     </div>
                   </div>
@@ -387,7 +448,7 @@ export default function App() {
               </div>
 
               <div className="bg-[#0d0d1a] border border-[#1a1a2e] rounded-xl p-5">
-                <h3 className="text-sm text-gray-400 mb-4">Quick Actions</h3>
+                <h3 className="text-sm text-gray-400 mb-4">{t("dashboard.quickActions")}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => { loadDisks(); setView("hunter"); }}
@@ -395,9 +456,9 @@ export default function App() {
                   >
                     <Search size={16} className="mt-0.5 shrink-0" />
                     <div>
-                      <div>Start Forensic Scan</div>
+                      <div>{t("dashboard.startScan")}</div>
                       <div className="text-[10px] text-gray-600 mt-0.5 font-normal">
-                        Recover deleted files via sector-level carving
+                        {t("dashboard.startScanDesc")}
                       </div>
                     </div>
                   </button>
@@ -407,9 +468,9 @@ export default function App() {
                   >
                     <ShieldOff size={16} className="mt-0.5 shrink-0" />
                     <div>
-                      <div>Secure Shred</div>
+                      <div>{t("dashboard.secureShred")}</div>
                       <div className="text-[10px] text-gray-600 mt-0.5 font-normal">
-                        Permanently destroy data (DoD / Gutmann / NVMe)
+                        {t("dashboard.secureShredDesc")}
                       </div>
                     </div>
                   </button>
@@ -424,13 +485,14 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-white">
-                    The Hunter — Forensic Recovery
+                    {t("hunter.title")}
                   </h2>
                   <p className="text-xs text-gray-600 mt-0.5 max-w-lg">
-                    Reads the selected device sector by sector, searching for JPEG, PNG, PDF, ZIP, EXE, MP4 and MP3 file signatures.
-                    Deleted or hidden files are listed below for recovery.
+                    {t("hunter.description")}
                     {!selectedDisk && (
-                      <span className="text-yellow-500/80 ml-1">← Select a device from the sidebar first.</span>
+                      <span className="text-yellow-500/80 ml-1">
+                        {t("hunter.selectFirst")}
+                      </span>
                     )}
                   </p>
                 </div>
@@ -442,7 +504,7 @@ export default function App() {
                       className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-sm font-medium hover:bg-[#00d4ff]/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Play size={14} />
-                      {scanState === "complete" ? "Re-scan" : "Start Scan"}
+                      {scanState === "complete" ? t("hunter.rescan") : t("hunter.startScan")}
                     </button>
                   ) : (
                     <button
@@ -450,7 +512,7 @@ export default function App() {
                       className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a1a2e] border border-[#1a1a2e] text-gray-400 text-sm font-medium hover:border-red-700/50 hover:text-red-400 transition-all"
                     >
                       <Square size={14} />
-                      Cancel
+                      {t("hunter.cancel")}
                     </button>
                   )}
                 </div>
@@ -474,7 +536,6 @@ export default function App() {
 
                 return (
                   <div className="border border-[#1a1a2e] bg-[#08080f] rounded-lg p-3 space-y-2">
-                    {/* Progress bar */}
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-2 bg-[#1a1a2e] rounded-full overflow-hidden">
                         <div
@@ -484,30 +545,26 @@ export default function App() {
                       </div>
                       <span className="text-[#00d4ff] font-mono text-xs shrink-0 w-9 text-right">{pct}%</span>
                     </div>
-
-                    {/* Stats grid */}
                     <div className="grid grid-cols-4 gap-2 text-[10px]">
                       <div>
-                        <div className="text-gray-700">Scanned</div>
+                        <div className="text-gray-700">{t("hunter.progress.scanned")}</div>
                         <div className="text-gray-300 font-mono">{fmtBytes(scanProgress.bytes_scanned)}</div>
                       </div>
                       <div>
-                        <div className="text-gray-700">Speed</div>
+                        <div className="text-gray-700">{t("hunter.progress.speed")}</div>
                         <div className="text-yellow-400 font-mono">{scanProgress.scan_speed_mb.toFixed(1)} MB/s</div>
                       </div>
                       <div>
-                        <div className="text-gray-700">ETA</div>
+                        <div className="text-gray-700">{t("hunter.progress.eta")}</div>
                         <div className="text-green-400 font-mono">{etaSec !== null ? fmtTime(etaSec) : "—"}</div>
                       </div>
                       <div>
-                        <div className="text-gray-700">Files</div>
+                        <div className="text-gray-700">{t("hunter.progress.files")}</div>
                         <div className="text-[#00d4ff] font-mono">{scanProgress.files_found}</div>
                       </div>
                     </div>
-
-                    {/* Elapsed + offset */}
                     <div className="flex justify-between text-[9px] text-gray-700 font-mono">
-                      <span>Elapsed: {fmtTime(scanProgress.elapsed_seconds)}</span>
+                      <span>{t("hunter.progress.elapsed")}: {fmtTime(scanProgress.elapsed_seconds)}</span>
                       <span>@ {scanProgress.current_offset_hex}</span>
                     </div>
                   </div>
@@ -536,17 +593,16 @@ export default function App() {
             <div className="p-6 max-w-2xl space-y-4">
               <div>
                 <h2 className="text-lg font-semibold text-white">
-                  The Oblivion — Military-Grade Shredder
+                  {t("oblivion.title")}
                 </h2>
                 <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
-                  Overwrites a file or entire drive with cryptographically random data using
-                  DoD 5220.22-M, Gutmann 35-pass, or NVMe hardware sanitize.
-                  Enter a file path or a device path (e.g.{" "}
-                  <code className="font-mono text-gray-500">\\.\C:</code>
+                  {t("oblivion.description", { path: "\\\\.\\ C:" })}
                   {selectedDisk && (
-                    <span className="text-[#00d4ff]/60"> — selected: <code className="font-mono">{selectedDisk}</code></span>
+                    <span className="text-[#00d4ff]/60">
+                      {" "}{t("oblivion.selected")}{" "}
+                      <code className="font-mono">{selectedDisk}</code>
+                    </span>
                   )}
-                  ).
                 </p>
               </div>
 
@@ -574,17 +630,17 @@ export default function App() {
             className="relative max-w-3xl max-h-[85vh] bg-[#0a0a0a] border border-[#1a1a2e] rounded-xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-[#1a1a2e]">
-              <span className="text-xs text-gray-400 font-mono">{previewData.type} — preview (up to 5 MB)</span>
+              <span className="text-xs text-gray-400 font-mono">
+                {t("preview.title", { type: previewData.type })}
+              </span>
               <button
                 onClick={() => setPreviewData(null)}
                 className="text-gray-600 hover:text-white text-lg leading-none px-1"
               >
-                ×
+                {t("preview.close")}
               </button>
             </div>
-            {/* Content */}
             <div className="p-4 overflow-auto max-h-[calc(85vh-42px)]">
               {previewData.mime.startsWith("image/") ? (
                 <img

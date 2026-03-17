@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   FileImage,
   FileText,
@@ -73,6 +74,7 @@ function formatBytes(bytes: number): string {
 type SortKey = "file_type" | "size_bytes" | "recovery_probability";
 
 export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
+  const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("recovery_probability");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filter, setFilter] = useState<string>("");
@@ -122,7 +124,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-gray-700">
         <div className="w-8 h-8 border-2 border-[#00d4ff]/30 border-t-[#00d4ff] rounded-full animate-spin mb-3" />
-        <span className="text-sm">Scanning raw sectors...</span>
+        <span className="text-sm">{t("recovery.loading")}</span>
       </div>
     );
   }
@@ -131,7 +133,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-gray-700">
         <File size={32} className="mb-3 opacity-20" />
-        <span className="text-sm">No files found. Select a device and start scan.</span>
+        <span className="text-sm">{t("recovery.empty")}</span>
       </div>
     );
   }
@@ -142,13 +144,13 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
       <div className="flex items-center gap-2">
         <input
           type="text"
-          placeholder="Filter by type (JPEG, PDF, MP4…)"
+          placeholder={t("recovery.filterPlaceholder")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="flex-1 bg-[#0d0d1a] border border-[#1a1a2e] rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-[#00d4ff]/50"
         />
         <span className="text-xs text-gray-600 shrink-0">
-          {sorted.length} / {files.length} files
+          {t("recovery.count", { shown: sorted.length, total: files.length })}
         </span>
       </div>
 
@@ -158,19 +160,19 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
           <thead className="bg-[#08080f] border-b border-[#1a1a2e]">
             <tr>
               <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider w-8">
-                #
+                {t("recovery.columns.id")}
               </th>
-              {colHeader("Type", "file_type")}
-              {colHeader("Size", "size_bytes")}
+              {colHeader(t("recovery.columns.type"), "file_type")}
+              {colHeader(t("recovery.columns.size"), "size_bytes")}
               <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
-                Offset
+                {t("recovery.columns.offset")}
               </th>
-              {colHeader("Recovery", "recovery_probability")}
+              {colHeader(t("recovery.columns.recovery"), "recovery_probability")}
               <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
-                Flags
+                {t("recovery.columns.flags")}
               </th>
               <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
-                Actions
+                {t("recovery.columns.actions")}
               </th>
             </tr>
           </thead>
@@ -200,18 +202,18 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
                   <div className="flex gap-1">
                     {file.is_fragmented && (
                       <span
-                        title={`${file.fragment_count} fragments`}
+                        title={t("recovery.fragments", { count: file.fragment_count })}
                         className="text-yellow-500/80"
                       >
                         <Layers size={12} />
                       </span>
                     )}
                     {file.sector_overwritten ? (
-                      <span title="Sector partially overwritten" className="text-red-500/80">
+                      <span title={t("recovery.overwritten")} className="text-red-500/80">
                         <AlertCircle size={12} />
                       </span>
                     ) : (
-                      <span title="Sector intact" className="text-[#00d4ff]/50">
+                      <span title={t("recovery.intact")} className="text-[#00d4ff]/50">
                         <CheckCircle size={12} />
                       </span>
                     )}
@@ -223,7 +225,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
                       <button
                         onClick={() => onPreview(file)}
                         className="p-1 rounded hover:bg-[#00d4ff]/10 text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors"
-                        title="Preview"
+                        title={t("recovery.preview")}
                       >
                         <Eye size={13} />
                       </button>
@@ -231,7 +233,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
                     <button
                       onClick={() => onRecover(file)}
                       className="p-1 rounded hover:bg-[#00d4ff]/10 text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors"
-                      title="Recover file"
+                      title={t("recovery.recoverFile")}
                     >
                       <Download size={13} />
                     </button>

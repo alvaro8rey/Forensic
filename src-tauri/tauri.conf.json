@@ -64,7 +64,15 @@
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
-        "timestampUrl": ""
+        "timestampUrl": "",
+        "nsis": {
+          "displayLanguageSelector": true,
+          "languages": ["English", "SpanicInternational"],
+          "installerIcon": "icons/icon.ico",
+          "headerImage": null,
+          "sidebarImage": null,
+          "installMode": "currentUser"
+        }
       }
     },
     "security": {

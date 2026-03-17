@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { HardDrive, Zap, Thermometer } from "lucide-react";
 import { DiskInfo } from "../types";
 
@@ -30,11 +31,13 @@ function formatBytes(bytes: number): string {
 }
 
 export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
+  const { t } = useTranslation();
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-[#00d4ff]/60 text-sm py-4">
         <div className="w-4 h-4 border border-[#00d4ff]/40 border-t-[#00d4ff] rounded-full animate-spin" />
-        Enumerating devices...
+        {t("disk.enumerating")}
       </div>
     );
   }
@@ -42,9 +45,9 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
   if (disks.length === 0) {
     return (
       <div className="text-gray-600 text-xs py-4 leading-relaxed">
-        No devices detected.
+        {t("disk.noDevices")}
         <br />
-        Click the refresh button above.
+        {t("disk.noDevicesHint")}
       </div>
     );
   }
@@ -84,7 +87,7 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
               {disk.smart_health.temperature_celsius != null && (
                 <span
                   className="flex items-center gap-0.5 text-[10px] text-gray-500 shrink-0 ml-2"
-                  title="Drive temperature"
+                  title={t("disk.temperature")}
                 >
                   <Thermometer size={9} />
                   {disk.smart_health.temperature_celsius}°C
@@ -103,7 +106,7 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
 
             {/* Row 3: Usage label */}
             <div className="flex justify-between mt-1 text-[9px] text-gray-700">
-              <span>Storage usage</span>
+              <span>{t("disk.usage")}</span>
               <span
                 className={
                   usedPct >= 80
@@ -113,7 +116,7 @@ export function DiskSelector({ disks, selected, onSelect, loading }: Props) {
                     : "text-[#00d4ff]/60"
                 }
               >
-                {usedPct}% used
+                {t("disk.used", { pct: usedPct })}
               </span>
             </div>
           </button>

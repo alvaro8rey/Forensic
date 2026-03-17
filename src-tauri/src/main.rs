@@ -113,6 +113,17 @@ async fn get_scan_results(state: State<'_, AppState>) -> Result<Vec<RecoveredFil
     Ok(state.scan_results.lock().unwrap().clone())
 }
 
+/// Structured result returned by recover_file.
+/// The `key` matches a translation key in the frontend locales
+/// (e.g. "recovery.recoveredMsg") so the UI can display a localised message.
+#[derive(serde::Serialize)]
+struct RecoverResult {
+    key: String,
+    file_type: String,
+    kb: usize,
+    path: String,
+}
+
 /// Recover (extract) a specific file from disk to a destination.
 /// Reads raw bytes at the recorded offset from the scanned device.
 #[tauri::command]
@@ -120,7 +131,7 @@ async fn recover_file(
     file_id: u64,
     destination_path: String,
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<RecoverResult, String> {
     info!("Command: recover_file id={} dest={}", file_id, destination_path);
 
     let (offset_start, size_bytes, type_str) = {
@@ -159,7 +170,12 @@ async fn recover_file(
 
     let kb = read_size / 1024;
     info!("Recovered {} ({} KB) from 0x{:X} → {}", type_str, kb, offset_start, destination_path);
-    Ok(format!("Recovered {} ({} KB) → {}", type_str, kb, destination_path))
+    Ok(RecoverResult {
+        key: "recovery.recoveredMsg".to_string(),
+        file_type: type_str,
+        kb,
+        path: destination_path,
+    })
 }
 
 /// Preview a file: read up to 5 MB and return as base64 (for images/text inline preview).

@@ -66,6 +66,14 @@ export interface DeletedMftEntry {
   file_type_hint: string;
 }
 
+/** Structured result returned by the recover_file Tauri command */
+export interface RecoverResult {
+  key: string;
+  file_type: string;
+  kb: number;
+  path: string;
+}
+
 export type AppView = "hunter" | "oblivion" | "dashboard";
 export type ScanState = "idle" | "scanning" | "complete" | "error";
 export type ShredState = "idle" | "shredding" | "complete" | "error";

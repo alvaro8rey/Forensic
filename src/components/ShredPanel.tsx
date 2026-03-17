@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { invoke } from "@tauri-apps/api/tauri";
+import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/api/dialog";
-import { ShieldOff, Zap, AlertTriangle, CheckCircle, FolderOpen, Square } from "lucide-react";
+import { ShieldOff, AlertTriangle, CheckCircle, FolderOpen, Square } from "lucide-react";
 import { ShredProgress, ShredState } from "../types";
 
 interface Props {
@@ -14,63 +14,19 @@ interface Props {
   onReset: () => void;
 }
 
-const ALGORITHMS = [
-  {
-    id: "DoD5220",
-    name: "DoD 5220.22-M",
-    desc: "3 passes: zeros → ones → random. Official US Department of Defense standard (NISPOM). Works on HDDs and regular files. Balance of security and speed — takes a few minutes per GB.",
-    recommendation: "✅ Recommended for most users",
-    recommendationColor: "text-green-400",
-    forWhom: "Best for: files, USB drives, HDD disks",
-    passes: 3,
-    icon: "🛡️",
-    safe: true,
-  },
-  {
-    id: "Gutmann35",
-    name: "Gutmann 35-Pass",
-    desc: "35 passes based on Peter Gutmann's 1996 paper targeting magnetic encoding residues on older HDD platters. The extra patterns are unnecessary on modern HDDs and useless on SSDs, but provide maximum psychological assurance. Expect hours per GB.",
-    recommendation: "🔬 Overkill — for HDD paranoia only",
-    recommendationColor: "text-yellow-400",
-    forWhom: "Best for: old HDDs with sensitive data. NOT for SSDs.",
-    passes: 35,
-    icon: "☢️",
-    safe: true,
-  },
-  {
-    id: "RandomSingle",
-    name: "Random (1-Pass)",
-    desc: "Single pass of cryptographically strong random data (ChaCha20 CSPRNG). Modern research shows one random pass is sufficient to prevent recovery on SSDs and flash storage. Fastest option — typically seconds to minutes per GB.",
-    recommendation: "⚡ Best for SSDs and quick file deletion",
-    recommendationColor: "text-[#00d4ff]",
-    forWhom: "Best for: SSDs, NVMe, USB flash, individual files",
-    passes: 1,
-    icon: "⚡",
-    safe: false,
-  },
-  {
-    id: "NvmeSanitize",
-    name: "NVMe Sanitize",
-    desc: "Sends a hardware Sanitize command directly to the NVMe controller. The drive's firmware erases every NAND flash block — including wear-leveling reserves invisible to software. This is the most thorough method for SSDs. Requires administrator and a device path like \\.\PhysicalDrive0.",
-    recommendation: "💡 Best for NVMe/SSD full-drive wipe",
-    recommendationColor: "text-purple-400",
-    forWhom: "Best for: NVMe SSDs, M.2 drives — full drive only",
-    passes: 1,
-    icon: "💾",
-    safe: true,
-  },
-  {
-    id: "NvmeFormat",
-    name: "NVMe Format NVM",
-    desc: "Issues the NVMe Format NVM command (User Data Erase) to the controller, resetting the drive namespace. Faster than Sanitize on some controllers, slightly less thorough. Also requires administrator and a raw device path.",
-    recommendation: "🔧 Alternative to Sanitize on some NVMe drives",
-    recommendationColor: "text-orange-400",
-    forWhom: "Best for: NVMe drives where Sanitize is not supported",
-    passes: 1,
-    icon: "🔥",
-    safe: true,
-  },
-];
+/** Non-translatable metadata per algorithm */
+const ALGO_META: Record<
+  string,
+  { icon: string; passes: number; safe: boolean; recommendationColor: string }
+> = {
+  DoD5220:     { icon: "🛡️", passes: 3,  safe: true,  recommendationColor: "text-green-400" },
+  Gutmann35:   { icon: "☢️", passes: 35, safe: true,  recommendationColor: "text-yellow-400" },
+  RandomSingle:{ icon: "⚡", passes: 1,  safe: false, recommendationColor: "text-[#00d4ff]" },
+  NvmeSanitize:{ icon: "💾", passes: 1,  safe: true,  recommendationColor: "text-purple-400" },
+  NvmeFormat:  { icon: "🔥", passes: 1,  safe: true,  recommendationColor: "text-orange-400" },
+};
+
+const ALGO_IDS = Object.keys(ALGO_META);
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
@@ -80,6 +36,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, onCancel, onReset }: Props) {
+  const { t } = useTranslation();
   const [selectedAlgo, setSelectedAlgo] = useState("DoD5220");
   const [targetPath, setTargetPath] = useState("");
   const [verify, setVerify] = useState(true);
@@ -92,7 +49,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
   async function handleBrowse() {
     const selected = await open({
       multiple: false,
-      title: "Select file or drive to shred",
+      title: t("shred.browseTitle"),
     });
     if (typeof selected === "string") {
       setTargetPath(selected);
@@ -115,49 +72,52 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
       {/* Algorithm selector */}
       <div>
         <label className="text-xs text-gray-600 uppercase tracking-wider block mb-2">
-          Destruction Algorithm
+          {t("shred.algorithmLabel")}
         </label>
         <div className="space-y-1">
-          {ALGORITHMS.map((algo) => {
-            const isSelected = selectedAlgo === algo.id;
+          {ALGO_IDS.map((id) => {
+            const meta = ALGO_META[id];
+            const isSelected = selectedAlgo === id;
             return (
               <button
-                key={algo.id}
+                key={id}
                 disabled={isActive}
-                onClick={() => { setSelectedAlgo(algo.id); setConfirmed(false); }}
+                onClick={() => { setSelectedAlgo(id); setConfirmed(false); }}
                 className={`w-full text-left rounded-lg border transition-all duration-150 ${
                   isSelected
                     ? "border-[#00d4ff]/40 bg-[#00d4ff]/5"
                     : "border-[#1a1a2e] bg-[#0d0d1a] hover:border-[#2a2a3e]"
                 } disabled:opacity-40`}
               >
-                {/* Always-visible compact row */}
+                {/* Compact always-visible row */}
                 <div className="flex items-center gap-2 px-2.5 py-2">
-                  <span className="text-sm leading-none shrink-0">{algo.icon}</span>
+                  <span className="text-sm leading-none shrink-0">{meta.icon}</span>
                   <span className={`text-xs font-medium shrink-0 ${isSelected ? "text-white" : "text-gray-400"}`}>
-                    {algo.name}
+                    {t(`shred.algorithms.${id}.name`)}
                   </span>
-                  <span className={`text-[9px] font-medium truncate ${algo.recommendationColor}`}>
-                    {algo.recommendation}
+                  <span className={`text-[9px] font-medium truncate ${meta.recommendationColor}`}>
+                    {t(`shred.algorithms.${id}.recommendation`)}
                   </span>
                   <span
                     className={`ml-auto shrink-0 text-[9px] px-1.5 py-0.5 rounded border ${
-                      algo.safe
+                      meta.safe
                         ? "text-[#00d4ff]/50 border-[#00d4ff]/20"
                         : "text-yellow-500/50 border-yellow-500/20"
                     }`}
                   >
-                    {algo.passes}P
+                    {meta.passes}P
                   </span>
                 </div>
 
-                {/* Expanded detail — only for selected */}
+                {/* Expanded detail — only for selected card */}
                 {isSelected && (
-                  <div className="px-2.5 pb-2.5 pt-0 border-t border-[#00d4ff]/10 mt-0">
-                    <p className={`text-[9px] font-semibold mt-2 mb-1 ${algo.recommendationColor} opacity-80`}>
-                      {algo.forWhom}
+                  <div className="px-2.5 pb-2.5 border-t border-[#00d4ff]/10">
+                    <p className={`text-[9px] font-semibold mt-2 mb-1 ${meta.recommendationColor} opacity-80`}>
+                      {t(`shred.algorithms.${id}.forWhom`)}
                     </p>
-                    <p className="text-[10px] text-gray-500 leading-relaxed">{algo.desc}</p>
+                    <p className="text-[10px] text-gray-500 leading-relaxed">
+                      {t(`shred.algorithms.${id}.desc`)}
+                    </p>
                   </div>
                 )}
               </button>
@@ -170,7 +130,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-xs text-gray-600 uppercase tracking-wider">
-            Target — file path or device path
+            {t("shred.targetLabel")}
           </label>
           {selectedDiskPath && !isActive && (
             <button
@@ -178,7 +138,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
               className="text-[10px] text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors font-mono"
               title={`Fill with the currently selected disk: ${selectedDiskPath}`}
             >
-              Use {selectedDiskPath}
+              {t("shred.useDisk", { path: selectedDiskPath })}
             </button>
           )}
         </div>
@@ -187,7 +147,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             type="text"
             value={targetPath}
             onChange={(e) => { setTargetPath(e.target.value); setConfirmed(false); }}
-            placeholder="\\.\C:  or  C:\path\to\file.docx"
+            placeholder={t("shred.placeholder")}
             disabled={isActive}
             className="flex-1 bg-[#0d0d1a] border border-[#1a1a2e] rounded px-3 py-2 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-[#00d4ff]/50 font-mono disabled:opacity-40"
           />
@@ -195,17 +155,25 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             onClick={handleBrowse}
             disabled={isActive}
             className="px-2.5 py-2 bg-[#0d0d1a] border border-[#1a1a2e] rounded hover:border-[#00d4ff]/40 text-gray-500 hover:text-[#00d4ff] transition-colors disabled:opacity-40"
-            title="Browse for a file"
+            title={t("shred.browseTitle")}
           >
             <FolderOpen size={14} />
           </button>
         </div>
         <p className="text-[10px] text-gray-700 mt-1 leading-relaxed">
-          For a <strong className="text-gray-600">file</strong>: enter the full path (e.g.{" "}
-          <code className="font-mono">F:\secret.docx</code>). The file will be overwritten and then <strong className="text-gray-600">deleted</strong>.
+          {/* File help */}
+          <span dangerouslySetInnerHTML={{
+            __html: t("shred.fileHelp")
+              .replace(/<1>(.*?)<\/1>/g, '<strong class="text-gray-600">$1</strong>')
+              .replace(/<2>(.*?)<\/2>/g, '<code class="font-mono">$1</code>')
+          }} />
           <br />
-          For an <strong className="text-gray-600">entire drive</strong>: use a device path like{" "}
-          <code className="font-mono">\\.\C:</code> or <code className="font-mono">\\.\PhysicalDrive0</code> (requires administrator).
+          {/* Drive help */}
+          <span dangerouslySetInnerHTML={{
+            __html: t("shred.driveHelp")
+              .replace(/<1>(.*?)<\/1>/g, '<strong class="text-gray-600">$1</strong>')
+              .replace(/<2>(.*?)<\/2>/g, '<code class="font-mono">$1</code>')
+          }} />
         </p>
       </div>
 
@@ -222,7 +190,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
         >
           {verify && <CheckCircle size={10} className="text-[#00d4ff]" />}
         </button>
-        <span className="text-xs text-gray-500">Verify last pass (bit-level read-back)</span>
+        <span className="text-xs text-gray-500">{t("shred.verify")}</span>
       </div>
 
       {/* Confirmation warning */}
@@ -231,11 +199,15 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
           <div className="flex items-start gap-2">
             <AlertTriangle size={14} className="text-red-400 mt-0.5 shrink-0" />
             <div className="text-xs text-red-400/80">
-              <strong className="text-red-400 block mb-1">IRREVERSIBLE ACTION</strong>
-              All data at <code className="font-mono text-red-300">{targetPath}</code> will
-              be permanently destroyed using{" "}
-              <strong>{ALGORITHMS.find((a) => a.id === selectedAlgo)?.name}</strong>.
-              This cannot be undone.
+              <strong className="text-red-400 block mb-1">{t("shred.warning.title")}</strong>
+              <span dangerouslySetInnerHTML={{
+                __html: t("shred.warning.body", {
+                  path: targetPath,
+                  algo: t(`shred.algorithms.${selectedAlgo}.name`),
+                })
+                  .replace(/<1>(.*?)<\/1>/g, '<code class="font-mono text-red-300">$1</code>')
+                  .replace(/<2>(.*?)<\/2>/g, '<strong>$1</strong>')
+              }} />
             </div>
           </div>
           <div className="flex items-center gap-2 mt-2.5">
@@ -250,7 +222,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
               {confirmed && <CheckCircle size={10} className="text-red-400" />}
             </button>
             <span className="text-xs text-red-400/60">
-              I confirm this data will be permanently destroyed
+              {t("shred.warning.confirm")}
             </span>
           </div>
         </div>
@@ -261,8 +233,11 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
             <span className="text-gray-500">
-              Pass {progress.current_pass}/{progress.total_passes} —{" "}
-              <span className="text-[#00d4ff]">{progress.algorithm}</span>
+              {t("shred.progress.pass", {
+                current: progress.current_pass,
+                total: progress.total_passes,
+                algo: progress.algorithm,
+              })}
             </span>
             <span className="text-gray-400 font-mono">{pct}%</span>
           </div>
@@ -284,15 +259,14 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
         <div className="border border-green-900/30 bg-green-900/10 rounded-lg px-3 py-2 space-y-1">
           <div className="flex items-center gap-2 text-green-400 text-sm">
             <CheckCircle size={14} />
-            Destruction complete.
+            {t("shred.complete.title")}
             {progress?.verification_passed === true && (
-              <span className="text-[10px] text-green-400/60 ml-auto">✓ Verified</span>
+              <span className="text-[10px] text-green-400/60 ml-auto">
+                {t("shred.complete.verified")}
+              </span>
             )}
           </div>
-          <p className="text-[10px] text-green-400/50">
-            All passes finished. For files: content overwritten and file deleted.
-            Data is unrecoverable.
-          </p>
+          <p className="text-[10px] text-green-400/50">{t("shred.complete.body")}</p>
         </div>
       )}
 
@@ -301,14 +275,12 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
         <div className="border border-red-900/40 bg-red-900/10 rounded-lg px-3 py-2 space-y-1">
           <div className="flex items-center gap-2 text-red-400 text-sm">
             <AlertTriangle size={14} />
-            Shred operation failed
+            {t("shred.error.title")}
           </div>
           {error && (
             <p className="text-[10px] text-red-400/70 font-mono break-all">{error}</p>
           )}
-          <p className="text-[10px] text-gray-600">
-            Common causes: path does not exist, insufficient permissions (run as administrator for device paths), or the drive is in use.
-          </p>
+          <p className="text-[10px] text-gray-600">{t("shred.error.hint")}</p>
         </div>
       )}
 
@@ -320,14 +292,14 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#0d0d1a] border border-[#1a1a2e] text-gray-400 text-sm font-medium hover:border-red-700/50 hover:text-red-400 transition-all"
           >
             <Square size={15} />
-            Cancel
+            {t("shred.cancel")}
           </button>
         ) : (isComplete || isError) ? (
           <button
             onClick={onReset}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#0d0d1a] border border-[#1a1a2e] text-gray-400 text-sm font-medium hover:border-[#00d4ff]/40 hover:text-[#00d4ff] transition-all"
           >
-            New Operation
+            {t("shred.newOperation")}
           </button>
         ) : (
           <button
@@ -336,7 +308,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-red-900/40 to-red-800/40 border border-red-700/50 text-red-400 text-sm font-medium hover:from-red-800/50 hover:to-red-700/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ShieldOff size={15} />
-            Execute Destruction
+            {t("shred.execute")}
           </button>
         )}
       </div>
