@@ -290,7 +290,7 @@ impl MftParser {
         if fn_base >= attr.len() {
             return None;
         }
-        let name_len = attr.get(val_off + 64)? as usize;
+        let name_len = *attr.get(val_off + 64)? as usize;
         let name_bytes_len = name_len * 2;
         if fn_base + name_bytes_len > attr.len() {
             return None;

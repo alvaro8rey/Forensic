@@ -91,9 +91,11 @@ impl SmartReader {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE,
-            GENERIC_READ, GENERIC_WRITE, OPEN_EXISTING,
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
         };
+        // GENERIC_READ = 0x80000000, GENERIC_WRITE = 0x40000000 (WinNT.h)
+        const GENERIC_READ: u32 = 0x8000_0000;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
         use windows_sys::Win32::System::IO::DeviceIoControl;
         use windows_sys::Win32::System::Ioctl::{
             IOCTL_STORAGE_QUERY_PROPERTY, StorageDeviceProperty,
@@ -185,13 +187,10 @@ impl SmartReader {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, 0 as NO_FLAGS,
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
         };
         use windows_sys::Win32::System::IO::DeviceIoControl;
-        use windows_sys::Win32::System::Ioctl::{
-            IOCTL_STORAGE_GET_MEDIA_TYPES_EX,
-            IOCTL_DISK_GET_LENGTH_INFO,
-        };
+        use windows_sys::Win32::System::Ioctl::IOCTL_DISK_GET_LENGTH_INFO;
 
         let wide: Vec<u16> = OsStr::new(path)
             .encode_wide()

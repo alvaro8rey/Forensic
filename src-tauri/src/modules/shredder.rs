@@ -7,7 +7,7 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
 use rand::{RngCore, SeedableRng};
-use rand::rngs::ChaCha20Rng;
+use rand_chacha::ChaCha20Rng;
 use tracing::{info, warn};
 use zeroize::Zeroize;
 
@@ -328,11 +328,14 @@ impl Shredder {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, GENERIC_READ, GENERIC_WRITE,
-            FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-            FILE_FLAG_NO_BUFFERING,
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            OPEN_EXISTING, FILE_FLAG_NO_BUFFERING,
         };
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+        // GENERIC_READ = 0x80000000, GENERIC_WRITE = 0x40000000 (WinNT.h)
+        const GENERIC_READ: u32 = 0x8000_0000;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
 
         let path_wide: Vec<u16> = OsStr::new(&self.options.target_path)
             .encode_wide()

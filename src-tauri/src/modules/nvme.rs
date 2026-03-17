@@ -184,10 +184,14 @@ impl NvmeAsyncReader {
                     hEvent: 0,
                 });
 
-                // Set file offset in OVERLAPPED structure
+                // Set file offset in OVERLAPPED structure.
+                // In windows-sys 0.52 the layout is:
+                //   OVERLAPPED.Anonymous (OVERLAPPED_0 union)
+                //     .Anonymous (OVERLAPPED_0_0 struct)
+                //       .Offset / .OffsetHigh
                 unsafe {
-                    overlapped.Anonymous.s_mut().Offset = (current_offset & 0xFFFFFFFF) as u32;
-                    overlapped.Anonymous.s_mut().OffsetHigh = (current_offset >> 32) as u32;
+                    overlapped.Anonymous.Anonymous.Offset = (current_offset & 0xFFFF_FFFF) as u32;
+                    overlapped.Anonymous.Anonymous.OffsetHigh = (current_offset >> 32) as u32;
                 }
 
                 let overlapped_ptr = Box::into_raw(overlapped);
