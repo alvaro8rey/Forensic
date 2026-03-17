@@ -222,7 +222,7 @@ export default function App() {
       />
 
       {/* ── Header ── */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-3 border-b border-[#1a1a2e] bg-[#0a0a0a]/90 backdrop-blur">
+      <header className="relative z-30 flex items-center justify-between px-6 py-3 border-b border-[#1a1a2e] bg-[#0a0a0a]/90 backdrop-blur">
         <div className="flex items-center gap-3">
           <div className="relative">
             <Cpu size={22} className="text-[#00d4ff]" />
