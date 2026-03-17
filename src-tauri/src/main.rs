@@ -5,6 +5,7 @@ mod modules;
 
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::thread;
+use std::io::{Read, Seek, SeekFrom, Write};
 use crossbeam_channel::unbounded;
 use tauri::{State, Window};
 use tracing::{error, info};
@@ -25,6 +26,8 @@ struct AppState {
     shred_cancel: Arc<AtomicBool>,
     scan_results: Arc<Mutex<Vec<RecoveredFile>>>,
     mft_results: Arc<Mutex<Vec<DeletedMftEntry>>>,
+    /// Device path used for the last scan (needed to extract bytes during recovery)
+    scan_device: Arc<Mutex<String>>,
 }
 
 impl Default for AppState {
@@ -34,6 +37,7 @@ impl Default for AppState {
             shred_cancel: Arc::new(AtomicBool::new(false)),
             scan_results: Arc::new(Mutex::new(Vec::new())),
             mft_results: Arc::new(Mutex::new(Vec::new())),
+            scan_device: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -58,8 +62,9 @@ async fn start_scan(
 ) -> Result<(), String> {
     info!("Command: start_scan on {}", device_path);
 
-    // Reset cancel flag
+    // Reset cancel flag and store device path for later recovery
     state.scan_cancel.store(false, Ordering::SeqCst);
+    *state.scan_device.lock().unwrap() = device_path.clone();
 
     let (tx, rx) = unbounded::<ScanProgress>();
     let cancel = Arc::clone(&state.scan_cancel);
@@ -108,7 +113,8 @@ async fn get_scan_results(state: State<'_, AppState>) -> Result<Vec<RecoveredFil
     Ok(state.scan_results.lock().unwrap().clone())
 }
 
-/// Recover (extract) a specific file from disk to a destination
+/// Recover (extract) a specific file from disk to a destination.
+/// Reads raw bytes at the recorded offset from the scanned device.
 #[tauri::command]
 async fn recover_file(
     file_id: u64,
@@ -117,23 +123,62 @@ async fn recover_file(
 ) -> Result<String, String> {
     info!("Command: recover_file id={} dest={}", file_id, destination_path);
 
-    let results = state.scan_results.lock().unwrap();
-    let file = results
-        .iter()
-        .find(|f| f.id == file_id)
-        .ok_or_else(|| format!("File ID {} not found in scan results", file_id))?;
+    let (offset_start, size_bytes, type_str) = {
+        let results = state.scan_results.lock().unwrap();
+        let f = results
+            .iter()
+            .find(|f| f.id == file_id)
+            .ok_or_else(|| format!("File ID {} not found in scan results", file_id))?;
+        (f.offset_start, f.size_bytes, format!("{:?}", f.file_type))
+    };
 
-    // TODO: open source device and extract bytes from offset_start..offset_end
-    let size_kb = file.size_bytes / 1024;
-    info!(
-        "Extracting {} ({} KB) from 0x{:X} to {}",
-        file.file_type, size_kb, file.offset_start, destination_path
-    );
+    let device_path = state.scan_device.lock().unwrap().clone();
+    if device_path.is_empty() {
+        return Err("No scan device recorded — run a scan first.".to_string());
+    }
 
-    Ok(format!(
-        "Recovered {} ({} KB) → {}",
-        file.file_type, size_kb, destination_path
-    ))
+    // Cap read size: never allocate more than 500 MB at once
+    let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
+
+    // Open the source device with shared read access
+    let mut src = open_device_ro(&device_path)
+        .map_err(|e| format!("Cannot open device '{}': {}", device_path, e))?;
+
+    src.seek(SeekFrom::Start(offset_start))
+        .map_err(|e| format!("Seek failed: {}", e))?;
+
+    let mut data = vec![0u8; read_size];
+    src.read_exact(&mut data)
+        .map_err(|e| format!("Read failed at offset 0x{:X}: {}", offset_start, e))?;
+
+    // Write recovered bytes to the user-chosen destination
+    let mut dst = std::fs::File::create(&destination_path)
+        .map_err(|e| format!("Cannot create output file '{}': {}", destination_path, e))?;
+    dst.write_all(&data)
+        .map_err(|e| format!("Write failed: {}", e))?;
+
+    let kb = read_size / 1024;
+    info!("Recovered {} ({} KB) from 0x{:X} → {}", type_str, kb, offset_start, destination_path);
+    Ok(format!("Recovered {} ({} KB) → {}", type_str, kb, destination_path))
+}
+
+/// Opens a device or file for raw sequential reading (shared, no write access).
+#[cfg(target_os = "windows")]
+fn open_device_ro(path: &str) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN)
+        .open(path)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn open_device_ro(path: &str) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
 }
 
 /// Parse NTFS MFT for deleted file records

@@ -157,7 +157,22 @@ impl FileCarver {
             }
         }
 
-        info!("Scan complete. Found {} files.", recovered.len());
+        // Deduplicate: the block-overlap mechanism can detect the same signature
+        // twice when it falls in the last OVERLAP_SIZE bytes of a block.
+        // Both detections produce the same abs_offset, so we filter by (type, offset).
+        let before = recovered.len();
+        let mut seen = std::collections::HashSet::new();
+        recovered.retain(|f| {
+            // Use a string key combining type and offset for HashSet compatibility
+            let key = format!("{:?}:{}", f.file_type, f.offset_start);
+            seen.insert(key)
+        });
+        // Re-assign sequential IDs after dedup
+        for (i, f) in recovered.iter_mut().enumerate() {
+            f.id = i as u64;
+        }
+
+        info!("Scan complete. {} files found ({} duplicates removed).", recovered.len(), before - recovered.len());
         Ok(recovered)
     }
 

@@ -174,10 +174,12 @@ impl FileSignature {
                 max_size: 100 * 1024 * 1024,
             },
             FileSignature {
-                header: vec![0x4D, 0x5A], // MZ - Windows PE
+                // MZ + standard DOS stub (0x90 0x00) — filters random MZ false positives.
+                // Pure "4D 5A" matches thousands of locations in unrelated data.
+                header: vec![0x4D, 0x5A, 0x90, 0x00],
                 footer: None,
                 file_type: FileType::EXE,
-                max_size: 500 * 1024 * 1024,
+                max_size: 50 * 1024 * 1024, // 50 MB cap — realistic executable size
             },
             FileSignature {
                 header: vec![0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70], // MP4

@@ -217,10 +217,9 @@ impl Shredder {
         let mut file = self.open_target_ro()?;
         let file_size = self.get_target_size(&mut file)?;
 
-        let mut sample_buf = vec![0u8; VERIFICATION_SAMPLE_SIZE];
         let mut verified = true;
 
-        // Sample at beginning, middle, and end
+        // Sample at beginning, 25%, 50%, 75%, and end of file
         let check_offsets = [
             0u64,
             file_size / 4,
@@ -230,6 +229,18 @@ impl Shredder {
         ];
 
         for offset in check_offsets {
+            if offset >= file_size {
+                continue;
+            }
+            // Clamp sample to available bytes (prevents "failed to fill whole buffer"
+            // on files smaller than VERIFICATION_SAMPLE_SIZE)
+            let available = (file_size - offset) as usize;
+            let to_read = available.min(VERIFICATION_SAMPLE_SIZE);
+            if to_read == 0 {
+                continue;
+            }
+            let mut sample_buf = vec![0u8; to_read];
+
             file.seek(SeekFrom::Start(offset))?;
             file.read_exact(&mut sample_buf)?;
 
@@ -242,7 +253,6 @@ impl Shredder {
                     }
                 }
                 PassType::Random => {
-                    // For random: check that not all bytes are the same (non-uniform)
                     let first = sample_buf[0];
                     let all_same = sample_buf.iter().all(|&b| b == first);
                     if all_same {

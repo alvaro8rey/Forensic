@@ -18,7 +18,7 @@ const ALGORITHMS = [
   {
     id: "DoD5220",
     name: "DoD 5220.22-M",
-    desc: "3-pass US DoD standard",
+    desc: "3 passes: zeros → ones → random. US Department of Defense standard. Suitable for HDDs and regular files. Moderate speed.",
     passes: 3,
     icon: "🛡️",
     safe: true,
@@ -26,7 +26,7 @@ const ALGORITHMS = [
   {
     id: "Gutmann35",
     name: "Gutmann 35-Pass",
-    desc: "Maximum security overwrite",
+    desc: "35 passes: random data, then 27 specific bit patterns targeting magnetic encoding residues (Gutmann 1996), then random again. Maximum assurance for HDDs. Very slow.",
     passes: 35,
     icon: "☢️",
     safe: true,
@@ -34,7 +34,7 @@ const ALGORITHMS = [
   {
     id: "RandomSingle",
     name: "Random (1-Pass)",
-    desc: "Fast single-pass random",
+    desc: "Single pass of cryptographically random data (ChaCha20). Fast and sufficient for most SSDs and modern media. Not officially certified.",
     passes: 1,
     icon: "⚡",
     safe: false,
@@ -42,7 +42,7 @@ const ALGORITHMS = [
   {
     id: "NvmeSanitize",
     name: "NVMe Sanitize",
-    desc: "Hardware NAND erase (SSD/M.2 only)",
+    desc: "Sends a hardware Sanitize command directly to the NVMe controller. The controller erases all NAND flash blocks at the hardware level — more thorough than any software overwrite. Requires device path (e.g. \\.\PhysicalDrive0) and administrator. SSD/M.2 only.",
     passes: 1,
     icon: "💾",
     safe: true,
@@ -50,7 +50,7 @@ const ALGORITHMS = [
   {
     id: "NvmeFormat",
     name: "NVMe Format NVM",
-    desc: "Controller-level format (SSD/M.2 only)",
+    desc: "Sends the NVMe Format NVM command to the controller, reformatting the namespace with User Data Erase. Faster than Sanitize on some drives. Requires device path and administrator. SSD/M.2 only.",
     passes: 1,
     icon: "🔥",
     safe: true,
@@ -122,7 +122,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
                   <span className="text-base leading-none">{algo.icon}</span>
                   <div>
                     <div className="text-white text-xs font-medium">{algo.name}</div>
-                    <div className="text-gray-600 text-[10px]">{algo.desc}</div>
+                    <div className="text-gray-500 text-[10px] leading-relaxed mt-0.5 max-w-xs">{algo.desc}</div>
                   </div>
                 </div>
                 <div className="text-right">
