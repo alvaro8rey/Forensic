@@ -35,41 +35,21 @@ function getGroup(type: string): string {
 
 interface GroupDef {
   id: string;
-  label: string;
+  labelKey: string;
   icon: React.ReactNode;
   color: string;
   activeClass: string;
 }
 
+// Labels are resolved inside the component via t(g.labelKey)
 const GROUPS: GroupDef[] = [
-  {
-    id: "all", label: "All", icon: <HardDrive size={12} />,
-    color: "text-gray-400", activeClass: "border-[#00d4ff]/50 bg-[#00d4ff]/10 text-[#00d4ff]",
-  },
-  {
-    id: "images", label: "Images", icon: <Image size={12} />,
-    color: "text-pink-400", activeClass: "border-pink-500/50 bg-pink-500/10 text-pink-400",
-  },
-  {
-    id: "documents", label: "Documents", icon: <BookOpen size={12} />,
-    color: "text-orange-400", activeClass: "border-orange-500/50 bg-orange-500/10 text-orange-400",
-  },
-  {
-    id: "videos", label: "Videos", icon: <Video size={12} />,
-    color: "text-purple-400", activeClass: "border-purple-500/50 bg-purple-500/10 text-purple-400",
-  },
-  {
-    id: "audio", label: "Audio", icon: <Music size={12} />,
-    color: "text-green-400", activeClass: "border-green-500/50 bg-green-500/10 text-green-400",
-  },
-  {
-    id: "archives", label: "Archives", icon: <Archive size={12} />,
-    color: "text-yellow-400", activeClass: "border-yellow-500/50 bg-yellow-500/10 text-yellow-400",
-  },
-  {
-    id: "other", label: "Other", icon: <File size={12} />,
-    color: "text-gray-500", activeClass: "border-gray-500/50 bg-gray-500/10 text-gray-400",
-  },
+  { id: "all",       labelKey: "recovery.groups.all",       icon: <HardDrive size={12} />, color: "text-gray-400",   activeClass: "border-[#00d4ff]/50 bg-[#00d4ff]/10 text-[#00d4ff]" },
+  { id: "images",    labelKey: "hunter.groups.images",      icon: <Image     size={12} />, color: "text-pink-400",   activeClass: "border-pink-500/50 bg-pink-500/10 text-pink-400" },
+  { id: "documents", labelKey: "hunter.groups.documents",   icon: <BookOpen  size={12} />, color: "text-orange-400", activeClass: "border-orange-500/50 bg-orange-500/10 text-orange-400" },
+  { id: "videos",    labelKey: "hunter.groups.videos",      icon: <Video     size={12} />, color: "text-purple-400", activeClass: "border-purple-500/50 bg-purple-500/10 text-purple-400" },
+  { id: "audio",     labelKey: "hunter.groups.audio",       icon: <Music     size={12} />, color: "text-green-400",  activeClass: "border-green-500/50 bg-green-500/10 text-green-400" },
+  { id: "archives",  labelKey: "hunter.groups.archives",    icon: <Archive   size={12} />, color: "text-yellow-400", activeClass: "border-yellow-500/50 bg-yellow-500/10 text-yellow-400" },
+  { id: "other",     labelKey: "hunter.groups.other",       icon: <File      size={12} />, color: "text-gray-500",   activeClass: "border-gray-500/50 bg-gray-500/10 text-gray-400" },
 ];
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -87,16 +67,17 @@ function FileIcon({ type }: { type: string }) {
 }
 
 function ProbabilityBadge({ prob }: { prob: number }) {
+  const { t } = useTranslation();
   const pct = Math.round(prob * 100);
   const color =
     pct >= 75 ? "text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/5" :
     pct >= 40 ? "text-yellow-400 border-yellow-400/30 bg-yellow-400/5" :
                 "text-red-400 border-red-400/30 bg-red-400/5";
-  const label = pct >= 75 ? "High" : pct >= 40 ? "Med" : "Low";
+  const labelKey = pct >= 75 ? "recovery.confidence.high" : pct >= 40 ? "recovery.confidence.med" : "recovery.confidence.low";
   return (
     <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${color}`}
-      title={`${pct}% recovery confidence`}>
-      {pct}% {label}
+      title={t("recovery.confidence.tooltip", { pct })}>
+      {pct}% {t(labelKey)}
     </span>
   );
 }
@@ -202,13 +183,9 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
 
   if (files.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-gray-700 gap-2">
-        <File size={32} className="opacity-20" />
+      <div className="flex flex-col items-center justify-center py-16 text-gray-700 gap-1">
+        <File size={32} className="opacity-20 mb-1" />
         <span className="text-sm">{t("recovery.empty")}</span>
-        <span className="text-[11px] text-gray-700 text-center max-w-sm leading-relaxed">
-          Select a device from the sidebar, choose a scan profile and hit{" "}
-          <span className="text-[#00d4ff]/60">Start Scan</span>. Results appear here in real time.
-        </span>
       </div>
     );
   }
@@ -222,17 +199,18 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
           const count = g.id === "all" ? files.length : (groupCounts[g.id] ?? 0);
           if (count === 0 && g.id !== "all") return null;
           const active = groupFilter === g.id;
+          const label = t(g.labelKey);
           return (
             <button
               key={g.id}
               onClick={() => setGroupFilter(g.id)}
-              title={`Show only ${g.label}`}
+              title={t("recovery.showOnly", { group: label })}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-all ${
                 active ? g.activeClass : `border-[#1a1a2e] ${g.color}/60 hover:${g.color} hover:border-current/30`
               }`}
             >
               {g.icon}
-              {g.label}
+              {label}
               <span className={`font-mono text-[10px] ${active ? "opacity-80" : "opacity-50"}`}>
                 {count}
               </span>
@@ -243,9 +221,9 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
           <button
             onClick={selectCurrentGroup}
             className="ml-auto text-[10px] text-[#00d4ff]/50 hover:text-[#00d4ff] transition-colors"
-            title="Select all visible files"
+            title={t("recovery.selectAllVisible")}
           >
-            Select all {sorted.length}
+            {t("recovery.selectAll", { count: sorted.length })}
           </button>
         )}
       </div>
@@ -275,7 +253,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
                   className="accent-[#00d4ff] cursor-pointer"
                   checked={sorted.length > 0 && selectedIds.size === sorted.length}
                   onChange={toggleAll}
-                  title="Select / deselect all visible"
+                  title={t("recovery.toggleAll")}
                 />
               </th>
               <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider w-8">
@@ -343,18 +321,18 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
                   <div className="flex gap-1">
                     {file.is_fragmented && (
                       <span
-                        title={`Fragmented file (${file.fragment_count} fragments) — may have gaps`}
+                        title={t("recovery.fragmentedTitle", { count: file.fragment_count })}
                         className="text-yellow-500/80"
                       >
                         <Layers size={12} />
                       </span>
                     )}
                     {file.sector_overwritten ? (
-                      <span title="Sector may be partially overwritten — recovery might be incomplete" className="text-red-500/80">
+                      <span title={t("recovery.overwritten")} className="text-red-500/80">
                         <AlertCircle size={12} />
                       </span>
                     ) : (
-                      <span title="Sector intact — high chance of full recovery" className="text-[#00d4ff]/50">
+                      <span title={t("recovery.intact")} className="text-[#00d4ff]/50">
                         <CheckCircle size={12} />
                       </span>
                     )}
@@ -366,7 +344,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
                       <button
                         onClick={() => onPreview(file)}
                         className="p-1 rounded hover:bg-[#00d4ff]/10 text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors"
-                        title="Preview file contents"
+                        title={t("recovery.preview")}
                       >
                         <Eye size={13} />
                       </button>
@@ -374,7 +352,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
                     <button
                       onClick={() => onRecover(file)}
                       className="p-1 rounded hover:bg-[#00d4ff]/10 text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors"
-                      title="Save file to disk"
+                      title={t("recovery.recoverFile")}
                     >
                       <Download size={13} />
                     </button>

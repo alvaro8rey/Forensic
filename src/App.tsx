@@ -75,7 +75,7 @@ export default function App() {
 
   // Reset scroll position whenever the user switches views
   useEffect(() => {
-    mainScrollRef.current?.scrollTo({ top: 0 });
+    if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
   }, [view]);
 
   // Guards against scan-complete / scan-error events arriving after the user

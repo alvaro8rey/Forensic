@@ -111,17 +111,31 @@
       "flags": "Flags",
       "actions": "Actions"
     },
+    "groups": {
+      "all": "All"
+    },
     "loading": "Scanning raw sectors...",
-    "empty": "No files found. Select a device and start scan.",
+    "empty": "No files found. Start a scan to see results here.",
     "fragments": "{{count}} fragments",
-    "overwritten": "Sector partially overwritten",
-    "intact": "Sector intact",
-    "preview": "Preview",
-    "recoverFile": "Recover file",
+    "fragmentedTitle": "Fragmented file ({{count}} fragments) — may have gaps",
+    "overwritten": "Sector may be partially overwritten — recovery might be incomplete",
+    "intact": "Sector intact — high chance of full recovery",
+    "preview": "Preview file contents",
+    "recoverFile": "Save file to disk",
     "recoveredMsg": "Recovered {{fileType}} ({{kb}} KB) → {{path}}",
     "batchRecover": "Recover selected",
     "batchFolder": "Choose destination folder",
-    "exportZip": "Export ZIP"
+    "exportZip": "Export ZIP",
+    "showOnly": "Show only {{group}}",
+    "selectAllVisible": "Select all visible files",
+    "selectAll": "Select all {{count}}",
+    "toggleAll": "Select / deselect all visible",
+    "confidence": {
+      "high": "High",
+      "med": "Med",
+      "low": "Low",
+      "tooltip": "{{pct}}% recovery confidence"
+    }
   },
   "preview": {
     "title": "{{type}} — preview (up to 5 MB)",

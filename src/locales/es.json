@@ -111,17 +111,31 @@
       "flags": "Indicadores",
       "actions": "Acciones"
     },
+    "groups": {
+      "all": "Todos"
+    },
     "loading": "Escaneando sectores sin procesar...",
-    "empty": "No se encontraron archivos. Selecciona un dispositivo e inicia el escaneo.",
+    "empty": "No se encontraron archivos. Inicia un escaneo para ver los resultados.",
     "fragments": "{{count}} fragmentos",
-    "overwritten": "Sector parcialmente sobreescrito",
-    "intact": "Sector intacto",
-    "preview": "Vista previa",
-    "recoverFile": "Recuperar archivo",
+    "fragmentedTitle": "Archivo fragmentado ({{count}} fragmentos) — puede tener huecos",
+    "overwritten": "Sector parcialmente sobreescrito — la recuperación podría ser incompleta",
+    "intact": "Sector intacto — alta probabilidad de recuperación completa",
+    "preview": "Vista previa del archivo",
+    "recoverFile": "Guardar archivo en disco",
     "recoveredMsg": "Recuperado {{fileType}} ({{kb}} KB) → {{path}}",
     "batchRecover": "Recuperar seleccionados",
     "batchFolder": "Elegir carpeta de destino",
-    "exportZip": "Exportar ZIP"
+    "exportZip": "Exportar ZIP",
+    "showOnly": "Mostrar solo {{group}}",
+    "selectAllVisible": "Seleccionar todos los visibles",
+    "selectAll": "Seleccionar los {{count}}",
+    "toggleAll": "Seleccionar / deseleccionar todos los visibles",
+    "confidence": {
+      "high": "Alta",
+      "med": "Med",
+      "low": "Baja",
+      "tooltip": "{{pct}}% de confianza de recuperación"
+    }
   },
   "preview": {
     "title": "{{type}} — vista previa (hasta 5 MB)",
