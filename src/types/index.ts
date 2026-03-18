@@ -93,3 +93,4 @@ export interface RecoverResult {
 export type AppView = "hunter" | "oblivion" | "dashboard";
 export type ScanState = "idle" | "scanning" | "complete" | "error";
 export type ShredState = "idle" | "shredding" | "complete" | "error";
+export type WipeState = "idle" | "wiping" | "complete" | "error";

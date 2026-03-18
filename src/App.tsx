@@ -44,6 +44,7 @@ import {
   ScanState,
   ShredProgress,
   ShredState,
+  WipeState,
 } from "./types";
 
 interface OrganizedRecoverySummary {
@@ -118,6 +119,11 @@ export default function App() {
   const [shredProgress, setShredProgress] = useState<ShredProgress | null>(null);
   const [shredError, setShredError] = useState<string | null>(null);
 
+  // Free space wipe state
+  const [wipeState, setWipeState] = useState<WipeState>("idle");
+  const [wipeProgress, setWipeProgress] = useState<ShredProgress | null>(null);
+  const [wipeError, setWipeError] = useState<string | null>(null);
+
   // Preview modal
   const [previewData, setPreviewData] = useState<{ mime: string; b64: string; type: string } | null>(null);
 
@@ -176,6 +182,20 @@ export default function App() {
     onShredError: useCallback((err: string) => {
       setShredState("error");
       setShredError(err);
+    }, []),
+
+    onWipeProgress: useCallback((p: ShredProgress) => {
+      setWipeProgress(p);
+    }, []),
+
+    onWipeComplete: useCallback(() => {
+      setWipeState("complete");
+      setWipeError(null);
+    }, []),
+
+    onWipeError: useCallback((err: string) => {
+      setWipeState("error");
+      setWipeError(err);
     }, []),
   });
 
@@ -406,6 +426,25 @@ export default function App() {
     setShredState("idle");
     setShredProgress(null);
     setShredError(null);
+  }
+
+  async function startWipeFreeSpace(dirPath: string) {
+    setWipeState("wiping");
+    setWipeProgress(null);
+    setWipeError(null);
+    await invoke("start_wipe_free_space", { targetDir: dirPath });
+  }
+
+  async function cancelWipeFreeSpace() {
+    await invoke("cancel_wipe_free_space");
+    setWipeState("idle");
+    setWipeError(null);
+  }
+
+  function resetWipe() {
+    setWipeState("idle");
+    setWipeProgress(null);
+    setWipeError(null);
   }
 
   function switchLanguage(code: LangCode) {
@@ -1006,6 +1045,12 @@ export default function App() {
                 onStart={startShred}
                 onCancel={cancelShred}
                 onReset={resetShred}
+                wipeProgress={wipeProgress}
+                wipeState={wipeState}
+                wipeError={wipeError}
+                onWipeStart={startWipeFreeSpace}
+                onWipeCancel={cancelWipeFreeSpace}
+                onWipeReset={resetWipe}
               />
             </div>
           )}

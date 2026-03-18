@@ -212,5 +212,19 @@
     "cancel": "Cancel",
     "newOperation": "New Operation",
     "execute": "Destroy Data"
+  },
+  "wipe": {
+    "title": "Free Space Cleaner",
+    "description": "Covers the traces of files you deleted the normal way (Recycle Bin, Delete key) weeks or months ago. Those old files are still physically on the disk until something overwrites them — this does exactly that. It fills all free space with random data and then removes the temporary file, leaving your free space the same size but unreadable by recovery tools.",
+    "placeholder": "C:\\  or  D:\\  (the drive to clean)",
+    "browseTitle": "Select the folder or drive to clean",
+    "warning": "All free space on the drive containing \"{{path}}\" will be filled with random data. This takes several minutes and the disk will appear almost full during the process — that is normal. When it finishes, the temporary file is deleted and your free space returns to normal.",
+    "confirm": "I understand — start overwriting free space",
+    "execute": "Clean Free Space",
+    "progress": "Overwriting free space with random data…",
+    "complete": "Free space cleaned successfully.",
+    "completeBytes": "of random data written and cleared",
+    "error": "Free space wipe failed",
+    "reset": "Try again"
   }
 }

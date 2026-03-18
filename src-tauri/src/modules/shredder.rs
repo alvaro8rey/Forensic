@@ -16,6 +16,12 @@ use super::types::{ShredAlgorithm, ShredOptions, ShredProgress, ShredStatus};
 const WRITE_BLOCK_SIZE: usize = 1024 * 1024; // 1MB write blocks
 const VERIFICATION_SAMPLE_SIZE: usize = 4096;
 
+// OS-specific "disk full" errno / win32 error code
+#[cfg(target_os = "windows")]
+const DISK_FULL_CODE: i32 = 112; // ERROR_DISK_FULL
+#[cfg(not(target_os = "windows"))]
+const DISK_FULL_CODE: i32 = 28; // ENOSPC
+
 /// Gutmann 35-pass patterns (Gutmann 1996)
 /// Passes 1-4: random, Passes 5-31: specific patterns, Passes 32-35: random
 const GUTMANN_PATTERNS: &[Option<u8>] = &[
@@ -80,19 +86,193 @@ impl Shredder {
             ShredAlgorithm::RandomSingle => self.shred_random_single()?,
         }
 
-        // After overwriting all passes, delete the file so no directory entry remains.
-        // Skip deletion for device paths (\\.\C: / /dev/sdX) — those are not files.
+        // Skip deletion/rename steps for raw device paths — they are not files.
         let is_device = self.options.target_path.starts_with(r"\\.\")
             || self.options.target_path.starts_with("/dev/");
 
         if !is_device {
-            std::fs::remove_file(&self.options.target_path)
-                .context("Data overwritten but could not delete the file afterwards")?;
-            info!("Deleted '{}' after overwrite", self.options.target_path);
+            // ── Step 1: Wipe NTFS Alternate Data Streams (Windows only) ──────
+            // NTFS files can carry hidden "streams" (e.g. Zone.Identifier) that
+            // contain metadata or data invisible to normal file browsers.
+            #[cfg(target_os = "windows")]
+            if let Err(e) = self.wipe_alternate_data_streams() {
+                warn!("ADS wipe warning (non-fatal): {}", e);
+            }
+
+            // ── Step 2: Truncate to 0 ─────────────────────────────────────────
+            // Removes the file size from the filesystem's directory entry / MFT
+            // record so forensic tools cannot infer what was stored.
+            {
+                let f = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&self.options.target_path)
+                    .context("Cannot open file to truncate")?;
+                f.set_len(0).context("Cannot truncate file to zero")?;
+                f.sync_data()?;
+            }
+
+            // ── Step 3: Rename to a random name ──────────────────────────────
+            // The filesystem journal (NTFS $LogFile / ext4 journal) records file
+            // operations. Renaming before deletion means the journal shows a
+            // random name was deleted — not the original filename.
+            let random_path = self.random_sibling_path()?;
+            std::fs::rename(&self.options.target_path, &random_path)
+                .context("Data overwritten but could not rename before deletion")?;
+
+            // ── Step 4: Delete ────────────────────────────────────────────────
+            std::fs::remove_file(&random_path)
+                .context("Data overwritten but could not delete the renamed file")?;
+
+            info!("Secure delete complete: overwritten → ADS wiped → truncated → renamed → deleted");
         }
 
         Ok(())
     }
+
+    // ── Secure rename helper ──────────────────────────────────────────────────
+
+    /// Returns a path to a random-named file in the same directory as the target.
+    fn random_sibling_path(&self) -> Result<std::path::PathBuf> {
+        use rand::distributions::Alphanumeric;
+        let parent = std::path::Path::new(&self.options.target_path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let name: String = ChaCha20Rng::from_entropy()
+            .sample_iter(Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+        Ok(parent.join(name))
+    }
+
+    // ── NTFS Alternate Data Streams (Windows only) ────────────────────────────
+
+    /// Enumerates all NTFS alternate data streams on the target file and
+    /// overwrites each with random bytes before the main content is deleted.
+    #[cfg(target_os = "windows")]
+    fn wipe_alternate_data_streams(&self) -> Result<()> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FindClose, FindFirstStreamW, FindNextStreamW,
+            FindStreamInfoStandard, WIN32_FIND_STREAM_DATA,
+        };
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+        let path_wide: Vec<u16> = OsStr::new(&self.options.target_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let mut find_data: WIN32_FIND_STREAM_DATA = unsafe { std::mem::zeroed() };
+
+        let handle = unsafe {
+            FindFirstStreamW(
+                path_wide.as_ptr(),
+                FindStreamInfoStandard,
+                &mut find_data as *mut WIN32_FIND_STREAM_DATA as *mut _,
+                0,
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            // File has no ADS, or FindFirstStreamW is not supported — not an error.
+            return Ok(());
+        }
+
+        let mut rng = ChaCha20Rng::from_entropy();
+
+        loop {
+            let name_len = find_data.cStreamName
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(296);
+            let stream_name = String::from_utf16_lossy(&find_data.cStreamName[..name_len]);
+
+            // Skip the main data stream (::$DATA) — that's handled by run_passes.
+            if !stream_name.is_empty() && stream_name != "::$DATA" {
+                // Strip the trailing ":$DATA" type suffix to get the access path.
+                // E.g. ":Zone.Identifier:$DATA" → "filepath:Zone.Identifier"
+                let stripped = stream_name.trim_end_matches(":$DATA");
+                let ads_path = format!("{}{}", self.options.target_path, stripped);
+                if let Err(e) = self.overwrite_ads_stream(&ads_path, &mut rng) {
+                    warn!("Could not wipe ADS '{}': {}", ads_path, e);
+                }
+            }
+
+            // Advance to next stream
+            let ok = unsafe {
+                FindNextStreamW(handle, &mut find_data as *mut WIN32_FIND_STREAM_DATA as *mut _)
+            };
+            if ok == 0 {
+                // ERROR_HANDLE_EOF (38) = no more streams — normal exit.
+                break;
+            }
+        }
+
+        unsafe { FindClose(handle) };
+        Ok(())
+    }
+
+    /// Overwrites the content of a single NTFS alternate data stream.
+    #[cfg(target_os = "windows")]
+    fn overwrite_ads_stream(&self, ads_path: &str, rng: &mut ChaCha20Rng) -> Result<()> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::io::FromRawHandle;
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        };
+
+        const GENERIC_READ: u32 = 0x8000_0000;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
+
+        let path_wide: Vec<u16> = OsStr::new(ads_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let handle = unsafe {
+            CreateFileW(
+                path_wide.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                0,
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            return Ok(()); // ADS may not be writable — skip gracefully.
+        }
+
+        let mut file = unsafe { std::fs::File::from_raw_handle(handle as *mut std::ffi::c_void) };
+
+        let size = file.seek(SeekFrom::End(0)).unwrap_or(0);
+        if size == 0 {
+            return Ok(());
+        }
+        file.seek(SeekFrom::Start(0))?;
+
+        let mut buf = vec![0u8; WRITE_BLOCK_SIZE];
+        let mut written = 0u64;
+        while written < size {
+            let to_write = (size - written).min(WRITE_BLOCK_SIZE as u64) as usize;
+            rng.fill_bytes(&mut buf[..to_write]);
+            file.write_all(&buf[..to_write])?;
+            written += to_write as u64;
+        }
+        file.sync_data()?;
+        buf.zeroize();
+
+        info!("Wiped ADS '{}' ({} bytes)", ads_path, size);
+        Ok(())
+    }
+
+    // ── Shred algorithms ──────────────────────────────────────────────────────
 
     /// DoD 5220.22-M: 3 passes
     ///   Pass 1: Write 0x00
@@ -280,6 +460,8 @@ impl Shredder {
         info!("Verification result: {}", if verified { "PASSED" } else { "FAILED" });
         Ok(verified)
     }
+
+    // ── NVMe hardware commands ────────────────────────────────────────────────
 
     /// NVMe Sanitize command via IOCTL_STORAGE_PROTOCOL_COMMAND
     /// This sends an ATA Sanitize (Crypto Erase or Block Erase) command
@@ -488,6 +670,99 @@ impl Shredder {
             .context(format!("Cannot open for reading: {}", self.options.target_path))
     }
 }
+
+// ── Free Space Wiper ──────────────────────────────────────────────────────────
+
+/// Fills all available free space on the given drive/directory with random data,
+/// then deletes the temporary file. This overwrites blocks that belonged to files
+/// deleted normally (via Recycle Bin / rm) before this tool was used.
+///
+/// The `target_dir` should be a writable directory on the target drive,
+/// e.g. "C:\\" or "/home/user".
+pub fn wipe_free_space(
+    target_dir: String,
+    progress_tx: Sender<ShredProgress>,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    use rand::distributions::Alphanumeric;
+
+    // Build temp file path inside the target directory.
+    let dir = std::path::Path::new(&target_dir);
+    let random_name: String = ChaCha20Rng::from_entropy()
+        .sample_iter(Alphanumeric)
+        .take(16)
+        .map(char::from)
+        .collect();
+    let temp_path = dir.join(format!("{}.wipe", random_name));
+
+    info!("Free space wipe: temp file at {:?}", temp_path);
+
+    let mut file = std::fs::File::create(&temp_path)
+        .context("Cannot create temp wipe file — check write permissions on the target directory")?;
+
+    let mut rng = ChaCha20Rng::from_entropy();
+    let mut buf = vec![0u8; WRITE_BLOCK_SIZE];
+    let mut written: u64 = 0;
+
+    loop {
+        if cancel_flag.load(Ordering::Relaxed) {
+            info!("Free space wipe cancelled after {} bytes", written);
+            break;
+        }
+
+        rng.fill_bytes(&mut buf);
+
+        match file.write_all(&buf) {
+            Ok(_) => {
+                written += WRITE_BLOCK_SIZE as u64;
+                let _ = progress_tx.try_send(ShredProgress {
+                    current_pass: 1,
+                    total_passes: 1,
+                    bytes_written: written,
+                    total_bytes: 0, // unknown upfront; UI shows raw bytes written
+                    algorithm: "Free Space Wipe".to_string(),
+                    verification_passed: None,
+                    status: ShredStatus::Shredding,
+                });
+            }
+            Err(e) => {
+                // Disk full = normal and expected termination.
+                if e.raw_os_error() == Some(DISK_FULL_CODE) {
+                    info!("Free space wipe: disk full after {} bytes — all free space overwritten", written);
+                    break;
+                }
+                // Real I/O error — clean up and report.
+                drop(file);
+                let _ = std::fs::remove_file(&temp_path);
+                buf.zeroize();
+                return Err(e).context("I/O error during free space wipe");
+            }
+        }
+    }
+
+    // Flush remaining data, then delete the temp file.
+    let _ = file.sync_data();
+    buf.zeroize();
+    drop(file);
+
+    std::fs::remove_file(&temp_path)
+        .context("Wipe complete but failed to delete temporary wipe file")?;
+
+    let _ = progress_tx.try_send(ShredProgress {
+        current_pass: 1,
+        total_passes: 1,
+        bytes_written: written,
+        total_bytes: written,
+        algorithm: "Free Space Wipe".to_string(),
+        verification_passed: None,
+        status: ShredStatus::Completed,
+    });
+
+    info!("Free space wipe complete: {} bytes written and cleared", written);
+    Ok(())
+}
+
+// ── Internal types ────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 enum PassType {

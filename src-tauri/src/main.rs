@@ -15,7 +15,7 @@ use modules::{
     carver::FileCarver,
     fat::FatCarver,
     mft::{DeletedMftEntry, MftParser},
-    shredder::Shredder,
+    shredder::{wipe_free_space, Shredder},
     smart::SmartReader,
     types::{DiskInfo, FileType, RecoveredFile, ScanProgress, ScanStatus, ShredAlgorithm, ShredOptions, ShredProgress, ValidationStatus},
 };
@@ -25,6 +25,7 @@ use modules::{
 struct AppState {
     scan_cancel: Arc<AtomicBool>,
     shred_cancel: Arc<AtomicBool>,
+    wipe_cancel: Arc<AtomicBool>,
     scan_results: Arc<Mutex<Vec<RecoveredFile>>>,
     mft_results: Arc<Mutex<Vec<DeletedMftEntry>>>,
     /// Device path used for the last scan (needed to extract bytes during recovery)
@@ -36,6 +37,7 @@ impl Default for AppState {
         Self {
             scan_cancel: Arc::new(AtomicBool::new(false)),
             shred_cancel: Arc::new(AtomicBool::new(false)),
+            wipe_cancel: Arc::new(AtomicBool::new(false)),
             scan_results: Arc::new(Mutex::new(Vec::new())),
             mft_results: Arc::new(Mutex::new(Vec::new())),
             scan_device: Arc::new(Mutex::new(String::new())),
@@ -875,6 +877,57 @@ async fn cancel_shred(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Fill all free space on a drive with random data to permanently cover traces
+/// of files that were deleted normally (without using the shredder).
+/// Emits `wipe-progress` events and `wipe-complete` / `wipe-error` when done.
+#[tauri::command]
+async fn start_wipe_free_space(
+    target_dir: String,
+    window: Window,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    info!("Command: start_wipe_free_space on {}", target_dir);
+
+    state.wipe_cancel.store(false, Ordering::SeqCst);
+
+    let (tx, rx) = unbounded::<ShredProgress>();
+    let cancel = Arc::clone(&state.wipe_cancel);
+    let win_clone = window.clone();
+    let dir_clone = target_dir.clone();
+
+    // Wipe thread
+    thread::spawn(move || {
+        match wipe_free_space(dir_clone.clone(), tx, cancel) {
+            Ok(_) => {
+                info!("Free space wipe complete on {}", dir_clone);
+                let _ = win_clone.emit("wipe-complete", &dir_clone);
+            }
+            Err(e) => {
+                error!("Free space wipe error: {}", e);
+                let _ = win_clone.emit("wipe-error", e.to_string());
+            }
+        }
+    });
+
+    // Progress relay
+    let win_progress = window.clone();
+    thread::spawn(move || {
+        for progress in rx {
+            let _ = win_progress.emit("wipe-progress", &progress);
+        }
+    });
+
+    Ok(())
+}
+
+/// Cancel an ongoing free space wipe operation
+#[tauri::command]
+async fn cancel_wipe_free_space(state: State<'_, AppState>) -> Result<(), String> {
+    info!("Command: cancel_wipe_free_space");
+    state.wipe_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
 /// Restore a previous scan session from a saved JSON export.
 /// Populates scan_results and scan_device so recovery/preview work immediately.
 #[tauri::command]
@@ -929,6 +982,8 @@ fn main() {
             import_scan_results,
             start_shred,
             cancel_shred,
+            start_wipe_free_space,
+            cancel_wipe_free_space,
             measure_nvme_speed,
         ])
         .run(tauri::generate_context!())

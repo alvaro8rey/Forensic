@@ -9,6 +9,9 @@ interface EventHandlers {
   onShredProgress?: (p: ShredProgress) => void;
   onShredComplete?: (path: string) => void;
   onShredError?: (err: string) => void;
+  onWipeProgress?: (p: ShredProgress) => void;
+  onWipeComplete?: (path: string) => void;
+  onWipeError?: (err: string) => void;
   onMftComplete?: (entries: DeletedMftEntry[]) => void;
   onMftError?: (err: string) => void;
 }
@@ -51,6 +54,24 @@ export function useTauriEvents(handlers: EventHandlers) {
       if (handlers.onShredError) {
         const u = await listen<string>("shred-error", (e) =>
           handlers.onShredError!(e.payload)
+        );
+        unlisten.push(u);
+      }
+      if (handlers.onWipeProgress) {
+        const u = await listen<ShredProgress>("wipe-progress", (e) =>
+          handlers.onWipeProgress!(e.payload)
+        );
+        unlisten.push(u);
+      }
+      if (handlers.onWipeComplete) {
+        const u = await listen<string>("wipe-complete", (e) =>
+          handlers.onWipeComplete!(e.payload)
+        );
+        unlisten.push(u);
+      }
+      if (handlers.onWipeError) {
+        const u = await listen<string>("wipe-error", (e) =>
+          handlers.onWipeError!(e.payload)
         );
         unlisten.push(u);
       }

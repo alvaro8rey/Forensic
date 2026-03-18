@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/api/dialog";
-import { ShieldOff, AlertTriangle, CheckCircle, FolderOpen, Square } from "lucide-react";
-import { ShredProgress, ShredState } from "../types";
+import { ShieldOff, AlertTriangle, CheckCircle, FolderOpen, Square, Wind } from "lucide-react";
+import { ShredProgress, ShredState, WipeState } from "../types";
 
 interface Props {
   progress: ShredProgress | null;
@@ -12,6 +12,13 @@ interface Props {
   onStart: (path: string, algorithm: string, verify: boolean) => void;
   onCancel: () => void;
   onReset: () => void;
+  // Free space wiper
+  wipeProgress: ShredProgress | null;
+  wipeState: WipeState;
+  wipeError?: string | null;
+  onWipeStart: (dirPath: string) => void;
+  onWipeCancel: () => void;
+  onWipeReset: () => void;
 }
 
 /** Non-translatable metadata per algorithm */
@@ -35,7 +42,7 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, onCancel, onReset }: Props) {
+export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, onCancel, onReset, wipeProgress, wipeState, wipeError, onWipeStart, onWipeCancel, onWipeReset }: Props) {
   const { t } = useTranslation();
   const [selectedAlgo, setSelectedAlgo] = useState("DoD5220");
   const [targetPath, setTargetPath] = useState("");
@@ -45,6 +52,25 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
   const isActive = state === "shredding";
   const isComplete = state === "complete";
   const isError = state === "error";
+
+  const [wipeDirPath, setWipeDirPath] = useState("");
+  const [wipeConfirmed, setWipeConfirmed] = useState(false);
+  const isWiping = wipeState === "wiping";
+  const isWipeComplete = wipeState === "complete";
+  const isWipeError = wipeState === "error";
+
+  const wipePct =
+    wipeProgress && wipeProgress.total_bytes > 0
+      ? Math.round((wipeProgress.bytes_written / wipeProgress.total_bytes) * 100)
+      : null;
+
+  async function handleWipeBrowse() {
+    const selected = await open({ directory: true, multiple: false, title: t("wipe.browseTitle") });
+    if (typeof selected === "string") {
+      setWipeDirPath(selected);
+      setWipeConfirmed(false);
+    }
+  }
 
   async function handleBrowse() {
     const selected = await open({
@@ -310,6 +336,150 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             <ShieldOff size={15} />
             {t("shred.execute")}
           </button>
+        )}
+      </div>
+
+      {/* ── Free Space Wiper ─────────────────────────────────────────────────── */}
+      <div className="border-t border-[#1a1a2e] pt-4 space-y-3">
+        <div>
+          <div className="flex items-center gap-2 mb-0.5">
+            <Wind size={13} className="text-[#00d4ff]/50" />
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              {t("wipe.title")}
+            </span>
+          </div>
+          <p className="text-[10px] text-gray-600 leading-relaxed">{t("wipe.description")}</p>
+        </div>
+
+        {/* Directory input */}
+        {!isWiping && !isWipeComplete && !isWipeError && (
+          <>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={wipeDirPath}
+                onChange={(e) => { setWipeDirPath(e.target.value); setWipeConfirmed(false); }}
+                placeholder={t("wipe.placeholder")}
+                className="flex-1 bg-[#0d0d1a] border border-[#1a1a2e] rounded px-3 py-2 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-[#00d4ff]/50 font-mono"
+              />
+              <button
+                onClick={handleWipeBrowse}
+                className="px-2.5 py-2 bg-[#0d0d1a] border border-[#1a1a2e] rounded hover:border-[#00d4ff]/40 text-gray-500 hover:text-[#00d4ff] transition-colors"
+                title={t("wipe.browseTitle")}
+              >
+                <FolderOpen size={14} />
+              </button>
+            </div>
+
+            {/* Wipe confirmation */}
+            {wipeDirPath && (
+              <div className="border border-orange-900/40 bg-orange-900/10 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={13} className="text-orange-400 mt-0.5 shrink-0" />
+                  <p className="text-[10px] text-orange-400/80 leading-relaxed">
+                    {t("wipe.warning", { path: wipeDirPath })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    onClick={() => setWipeConfirmed((c) => !c)}
+                    className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                      wipeConfirmed
+                        ? "bg-orange-500/30 border-orange-500/60"
+                        : "bg-transparent border-orange-900/40"
+                    }`}
+                  >
+                    {wipeConfirmed && <CheckCircle size={10} className="text-orange-400" />}
+                  </button>
+                  <span className="text-[10px] text-orange-400/60">{t("wipe.confirm")}</span>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => onWipeStart(wipeDirPath)}
+              disabled={!wipeDirPath || !wipeConfirmed}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-[#0d0d1a] border border-[#00d4ff]/20 text-[#00d4ff]/60 text-xs font-medium hover:border-[#00d4ff]/50 hover:text-[#00d4ff] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <Wind size={13} />
+              {t("wipe.execute")}
+            </button>
+          </>
+        )}
+
+        {/* Wipe progress */}
+        {isWiping && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">{t("wipe.progress")}</span>
+              {wipePct !== null && (
+                <span className="text-gray-400 font-mono">{wipePct}%</span>
+              )}
+            </div>
+            <div className="h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full bg-gradient-to-r from-[#00d4ff]/40 to-[#00d4ff]/80 transition-all duration-300 ${
+                  wipePct === null ? "animate-pulse w-full" : ""
+                }`}
+                style={wipePct !== null ? { width: `${wipePct}%` } : {}}
+              />
+            </div>
+            {wipeProgress && (
+              <div className="flex justify-between text-[10px] text-gray-600 font-mono">
+                <span>{formatBytes(wipeProgress.bytes_written)} {t("shred.written")}</span>
+                {wipeProgress.total_bytes > 0 && (
+                  <span>{formatBytes(wipeProgress.total_bytes)} {t("shred.total")}</span>
+                )}
+              </div>
+            )}
+            <button
+              onClick={onWipeCancel}
+              className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg bg-[#0d0d1a] border border-[#1a1a2e] text-gray-500 text-xs hover:border-red-700/40 hover:text-red-400 transition-all"
+            >
+              <Square size={12} />
+              {t("shred.cancel")}
+            </button>
+          </div>
+        )}
+
+        {/* Wipe complete */}
+        {isWipeComplete && (
+          <div className="border border-green-900/30 bg-green-900/10 rounded-lg px-3 py-2 space-y-1">
+            <div className="flex items-center gap-2 text-green-400 text-xs">
+              <CheckCircle size={13} />
+              {t("wipe.complete")}
+            </div>
+            {wipeProgress && (
+              <p className="text-[10px] text-green-400/50 font-mono">
+                {formatBytes(wipeProgress.bytes_written)} {t("wipe.completeBytes")}
+              </p>
+            )}
+            <button
+              onClick={onWipeReset}
+              className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+            >
+              {t("wipe.reset")}
+            </button>
+          </div>
+        )}
+
+        {/* Wipe error */}
+        {isWipeError && (
+          <div className="border border-red-900/40 bg-red-900/10 rounded-lg px-3 py-2 space-y-1">
+            <div className="flex items-center gap-2 text-red-400 text-xs">
+              <AlertTriangle size={13} />
+              {t("wipe.error")}
+            </div>
+            {wipeError && (
+              <p className="text-[10px] text-red-400/70 font-mono break-all">{wipeError}</p>
+            )}
+            <button
+              onClick={onWipeReset}
+              className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+            >
+              {t("wipe.reset")}
+            </button>
+          </div>
         )}
       </div>
     </div>

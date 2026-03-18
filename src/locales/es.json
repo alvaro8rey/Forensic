@@ -212,5 +212,19 @@
     "cancel": "Cancelar",
     "newOperation": "Nueva Operación",
     "execute": "Destruir Datos"
+  },
+  "wipe": {
+    "title": "Limpiador de Espacio Libre",
+    "description": "Cubre los rastros de archivos que borraste de la manera normal (Papelera, tecla Supr) hace semanas o meses. Esos archivos siguen estando físicamente en el disco hasta que algo los sobreescriba — esto hace exactamente eso. Rellena todo el espacio libre con datos aleatorios y luego borra el archivo temporal, dejando tu espacio libre con el mismo tamaño pero ilegible para herramientas de recuperación.",
+    "placeholder": "C:\\  o  D:\\  (la unidad a limpiar)",
+    "browseTitle": "Seleccionar la carpeta o unidad a limpiar",
+    "warning": "Todo el espacio libre en la unidad que contiene \"{{path}}\" se rellenará con datos aleatorios. Esto tarda varios minutos y el disco aparecerá casi lleno durante el proceso — eso es normal. Al finalizar, el archivo temporal se borra y el espacio libre vuelve a ser el mismo.",
+    "confirm": "Lo entiendo — empezar a sobreescribir el espacio libre",
+    "execute": "Limpiar Espacio Libre",
+    "progress": "Sobreescribiendo espacio libre con datos aleatorios…",
+    "complete": "Espacio libre limpiado correctamente.",
+    "completeBytes": "de datos aleatorios escritos y eliminados",
+    "error": "El limpiado de espacio libre ha fallado",
+    "reset": "Intentar de nuevo"
   }
 }
