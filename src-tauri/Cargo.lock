@@ -14,6 +14,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "binread",
  "byteorder",
  "crossbeam",
@@ -23,6 +24,7 @@ dependencies = [
  "log",
  "nom",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "rayon",
  "serde",
  "serde_json",
