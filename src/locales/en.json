@@ -115,7 +115,9 @@
       "all": "All"
     },
     "loading": "Scanning raw sectors...",
-    "empty": "No files found. Start a scan to see results here.",
+    "emptyNoDisk": "← Select a device from the sidebar to get started.",
+    "emptyNotStarted": "Hit Start Scan above to search for deleted files.",
+    "empty": "No files found on this device.",
     "fragments": "{{count}} fragments",
     "fragmentedTitle": "Fragmented file ({{count}} fragments) — may have gaps",
     "overwritten": "Sector may be partially overwritten — recovery might be incomplete",

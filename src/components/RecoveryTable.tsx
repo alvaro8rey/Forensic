@@ -98,13 +98,15 @@ interface Props {
   loading: boolean;
   selectedIds: Set<number>;
   onSelectionChange: (ids: Set<number>) => void;
+  hasDisk: boolean;
+  scanStarted: boolean;
 }
 
 type SortKey = "file_type" | "size_bytes" | "recovery_probability";
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function RecoveryTable({ files, onRecover, onPreview, loading, selectedIds, onSelectionChange }: Props) {
+export function RecoveryTable({ files, onRecover, onPreview, loading, selectedIds, onSelectionChange, hasDisk, scanStarted }: Props) {
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("recovery_probability");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -182,10 +184,15 @@ export function RecoveryTable({ files, onRecover, onPreview, loading, selectedId
   }
 
   if (files.length === 0) {
+    const emptyKey = !hasDisk
+      ? "recovery.emptyNoDisk"
+      : !scanStarted
+      ? "recovery.emptyNotStarted"
+      : "recovery.empty";
     return (
       <div className="flex flex-col items-center justify-center py-16 text-gray-700 gap-1">
         <File size={32} className="opacity-20 mb-1" />
-        <span className="text-sm">{t("recovery.empty")}</span>
+        <span className="text-sm text-center">{t(emptyKey)}</span>
       </div>
     );
   }

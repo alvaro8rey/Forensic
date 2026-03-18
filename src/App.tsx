@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/tauri";
 import { save, open as openDialog } from "@tauri-apps/api/dialog";
@@ -20,7 +20,6 @@ import {
   Upload,
   FolderTree,
   CheckCircle2,
-  AlertTriangle,
   Image,
   BookOpen,
   Video,
@@ -73,10 +72,12 @@ export default function App() {
   const prevFilesRef = useRef(0);
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
-  // Reset scroll position whenever the user switches views
-  useEffect(() => {
+  // Synchronous scroll reset — called inside every onClick that changes view
+  // so it runs BEFORE React re-renders (useEffect fires too late: the browser
+  // may scroll to a focused element between the render and the effect).
+  function scrollToTop() {
     if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
-  }, [view]);
+  }
 
   // Guards against scan-complete / scan-error events arriving after the user
   // already cancelled — those stale updates cause inconsistent state and a
@@ -476,7 +477,7 @@ export default function App() {
           ).map(({ id, labelKey, Icon }) => (
             <button
               key={id}
-              onClick={() => setView(id)}
+              onClick={() => { scrollToTop(); setView(id); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-all ${
                 view === id
                   ? "bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/30"
@@ -679,7 +680,7 @@ export default function App() {
                 <h3 className="text-sm text-gray-400 mb-4">{t("dashboard.quickActions")}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => { loadDisks(); setView("hunter"); }}
+                    onClick={() => { scrollToTop(); loadDisks(); setView("hunter"); }}
                     className="flex items-start gap-2 p-3 rounded-lg border border-[#1a1a2e] hover:border-[#00d4ff]/40 hover:bg-[#00d4ff]/5 text-gray-400 hover:text-[#00d4ff] text-sm transition-all text-left"
                   >
                     <Search size={16} className="mt-0.5 shrink-0" />
@@ -691,7 +692,7 @@ export default function App() {
                     </div>
                   </button>
                   <button
-                    onClick={() => setView("oblivion")}
+                    onClick={() => { scrollToTop(); setView("oblivion"); }}
                     className="flex items-start gap-2 p-3 rounded-lg border border-[#1a1a2e] hover:border-red-700/40 hover:bg-red-900/10 text-gray-400 hover:text-red-400 text-sm transition-all text-left"
                   >
                     <ShieldOff size={16} className="mt-0.5 shrink-0" />
@@ -710,14 +711,6 @@ export default function App() {
           {/* ── Hunter View ── */}
           {view === "hunter" && (
             <div className="p-6 space-y-4">
-
-              {/* Onboarding hint — shown when idle and no disk selected */}
-              {scanState === "idle" && !selectedDisk && recoveredFiles.length === 0 && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5 text-yellow-400/80 text-xs">
-                  <AlertTriangle size={12} className="shrink-0" />
-                  <span>{t("hunter.selectFirst")}</span>
-                </div>
-              )}
 
               <div className="flex items-center justify-between">
                 <div>
@@ -981,6 +974,8 @@ export default function App() {
                 loading={scanState === "scanning" && recoveredFiles.length === 0}
                 selectedIds={selectedIds}
                 onSelectionChange={setSelectedIds}
+                hasDisk={!!selectedDisk}
+                scanStarted={scanState !== "idle" || recoveredFiles.length > 0}
               />
             </div>
           )}

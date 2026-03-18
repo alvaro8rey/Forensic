@@ -115,7 +115,9 @@
       "all": "Todos"
     },
     "loading": "Escaneando sectores sin procesar...",
-    "empty": "No se encontraron archivos. Inicia un escaneo para ver los resultados.",
+    "emptyNoDisk": "← Selecciona un dispositivo en la barra lateral para empezar.",
+    "emptyNotStarted": "Pulsa Iniciar Escaneo para buscar archivos eliminados.",
+    "empty": "No se encontraron archivos en este dispositivo.",
     "fragments": "{{count}} fragmentos",
     "fragmentedTitle": "Archivo fragmentado ({{count}} fragmentos) — puede tener huecos",
     "overwritten": "Sector parcialmente sobreescrito — la recuperación podría ser incompleta",
