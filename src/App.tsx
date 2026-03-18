@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/tauri";
 import { save, open as openDialog } from "@tauri-apps/api/dialog";
@@ -20,6 +20,7 @@ import {
   Upload,
   FolderTree,
   CheckCircle2,
+  AlertTriangle,
   Image,
   BookOpen,
   Video,
@@ -70,6 +71,13 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [terminalLogs, setTerminalLogs] = useState<ReturnType<typeof buildLogEntry>[]>([]);
   const prevFilesRef = useRef(0);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+
+  // Reset scroll position whenever the user switches views
+  useEffect(() => {
+    mainScrollRef.current?.scrollTo({ top: 0 });
+  }, [view]);
+
   // Guards against scan-complete / scan-error events arriving after the user
   // already cancelled — those stale updates cause inconsistent state and a
   // black screen because there is no React Error Boundary to catch the crash.
@@ -413,12 +421,12 @@ export default function App() {
     ZIP: "archives", RAR: "archives", SevenZ: "archives",
   };
   const FILE_GROUP_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-    images:    { label: "Images",    icon: <Image    size={11} />, color: "text-pink-400" },
-    documents: { label: "Documents", icon: <BookOpen size={11} />, color: "text-orange-400" },
-    videos:    { label: "Videos",    icon: <Video    size={11} />, color: "text-purple-400" },
-    audio:     { label: "Audio",     icon: <Music    size={11} />, color: "text-green-400" },
-    archives:  { label: "Archives",  icon: <Archive  size={11} />, color: "text-yellow-400" },
-    other:     { label: "Other",     icon: <File     size={11} />, color: "text-gray-500" },
+    images:    { label: t("hunter.groups.images"),    icon: <Image    size={11} />, color: "text-pink-400" },
+    documents: { label: t("hunter.groups.documents"), icon: <BookOpen size={11} />, color: "text-orange-400" },
+    videos:    { label: t("hunter.groups.videos"),    icon: <Video    size={11} />, color: "text-purple-400" },
+    audio:     { label: t("hunter.groups.audio"),     icon: <Music    size={11} />, color: "text-green-400" },
+    archives:  { label: t("hunter.groups.archives"),  icon: <Archive  size={11} />, color: "text-yellow-400" },
+    other:     { label: t("hunter.groups.other"),     icon: <File     size={11} />, color: "text-gray-500" },
   };
   const fileCounts: Record<string, number> = {};
   recoveredFiles.forEach((f) => {
@@ -604,7 +612,7 @@ export default function App() {
         </aside>
 
         {/* ── Main Content ── */}
-        <div className="flex-1 overflow-y-auto" onClick={() => langMenuOpen && setLangMenuOpen(false)}>
+        <div ref={mainScrollRef} className="flex-1 overflow-y-auto" onClick={() => langMenuOpen && setLangMenuOpen(false)}>
 
           {/* ── Dashboard ── */}
           {view === "dashboard" && (
@@ -703,50 +711,11 @@ export default function App() {
           {view === "hunter" && (
             <div className="p-6 space-y-4">
 
-              {/* Onboarding steps — shown when idle and no results yet */}
-              {scanState === "idle" && recoveredFiles.length === 0 && (
-                <div className="border border-[#1a1a2e] bg-[#08080f] rounded-xl p-5 space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">How to recover deleted files</h3>
-                    <p className="text-[11px] text-gray-600 mt-0.5">Three steps to get your files back.</p>
-                  </div>
-                  <ol className="space-y-3">
-                    {[
-                      {
-                        n: "1",
-                        title: "Select a device",
-                        desc: "Choose the drive that contained your files from the left sidebar. Click the refresh icon if no devices appear.",
-                        color: "text-[#00d4ff]",
-                        done: !!selectedDisk,
-                      },
-                      {
-                        n: "2",
-                        title: "Choose a scan profile",
-                        desc: "Fast scans directory entries only (seconds). Full scan reads every sector — finds more files but takes several minutes.",
-                        color: "text-yellow-400",
-                        done: false,
-                      },
-                      {
-                        n: "3",
-                        title: "Hit Start Scan — then recover",
-                        desc: 'Files appear in real time. Use the type chips to filter, then "Recover All — Organized" to save everything sorted into folders automatically.',
-                        color: "text-green-400",
-                        done: false,
-                      },
-                    ].map(({ n, title, desc, color, done }) => (
-                      <li key={n} className="flex gap-3">
-                        <div className={`shrink-0 w-6 h-6 rounded-full border flex items-center justify-center text-[11px] font-bold ${
-                          done ? "border-[#00d4ff]/50 bg-[#00d4ff]/10 text-[#00d4ff]" : `border-[#1a1a2e] ${color}/60`
-                        }`}>
-                          {done ? "✓" : n}
-                        </div>
-                        <div>
-                          <div className={`text-xs font-medium ${done ? "text-[#00d4ff]" : "text-gray-300"}`}>{title}</div>
-                          <div className="text-[11px] text-gray-600 mt-0.5 leading-relaxed">{desc}</div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
+              {/* Onboarding hint — shown when idle and no disk selected */}
+              {scanState === "idle" && !selectedDisk && recoveredFiles.length === 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5 text-yellow-400/80 text-xs">
+                  <AlertTriangle size={12} className="shrink-0" />
+                  <span>{t("hunter.selectFirst")}</span>
                 </div>
               )}
 
@@ -757,11 +726,6 @@ export default function App() {
                   </h2>
                   <p className="text-xs text-gray-600 mt-0.5 max-w-lg">
                     {t("hunter.description")}
-                    {!selectedDisk && (
-                      <span className="text-yellow-500/80 ml-1">
-                        {t("hunter.selectFirst")}
-                      </span>
-                    )}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -919,7 +883,7 @@ export default function App() {
                 <div className="flex items-center gap-3 px-3 py-2 bg-[#08080f] border border-[#00d4ff]/20 rounded-lg flex-wrap">
                   <div className="flex items-center gap-1.5 text-[#00d4ff]">
                     <CheckCircle2 size={13} />
-                    <span className="text-xs font-semibold">{recoveredFiles.length} files found</span>
+                    <span className="text-xs font-semibold">{t("hunter.filesFound", { count: recoveredFiles.length })}</span>
                   </div>
                   <div className="w-px h-4 bg-[#1a1a2e]" />
                   {Object.entries(FILE_GROUP_META).map(([key, { label, icon, color }]) => {

@@ -66,6 +66,15 @@
       "files": "Archivos",
       "elapsed": "Transcurrido"
     },
+    "filesFound": "{{count}} archivos encontrados",
+    "groups": {
+      "images": "Imágenes",
+      "documents": "Documentos",
+      "videos": "Vídeos",
+      "audio": "Audio",
+      "archives": "Archivos",
+      "other": "Otros"
+    },
     "scanComplete": "✓ Escaneo completado. {{count}} archivo(s) recuperado(s).",
     "scanError": "✗ Error: {{error}}",
     "profile": {

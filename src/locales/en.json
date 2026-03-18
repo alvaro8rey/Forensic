@@ -66,6 +66,15 @@
       "files": "Files",
       "elapsed": "Elapsed"
     },
+    "filesFound": "{{count}} files found",
+    "groups": {
+      "images": "Images",
+      "documents": "Documents",
+      "videos": "Videos",
+      "audio": "Audio",
+      "archives": "Archives",
+      "other": "Other"
+    },
     "scanComplete": "✓ Scan complete. {{count}} file(s) recovered.",
     "scanError": "✗ Error: {{error}}",
     "profile": {
