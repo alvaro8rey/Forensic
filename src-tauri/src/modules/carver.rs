@@ -116,13 +116,19 @@ impl FileCarver {
                                 sig.file_type, abs_offset
                             );
 
-                            let (end_offset, is_fragmented) = self.find_file_end(
-                                &mut file,
-                                abs_offset,
-                                &sig.footer,
-                                sig.max_size,
-                                total_size,
-                            );
+                            let (end_offset, is_fragmented) = if sig.file_type == FileType::JPEG {
+                                let search_end = (abs_offset + sig.max_size).min(total_size);
+                                let end = jpeg_find_end(&mut file, abs_offset, search_end);
+                                (end, end == (abs_offset + sig.max_size).min(total_size))
+                            } else {
+                                self.find_file_end(
+                                    &mut file,
+                                    abs_offset,
+                                    &sig.footer,
+                                    sig.max_size,
+                                    total_size,
+                                )
+                            };
 
                             let size = end_offset.saturating_sub(abs_offset);
                             let recovery_prob = self.calculate_recovery_probability(
@@ -516,6 +522,99 @@ fn find_text_end(file: &mut std::fs::File, start: u64, total_size: u64) -> u64 {
         }
     }
     pos
+}
+
+// ── JPEG-aware EOI finder ─────────────────────────────────────────────────────
+
+/// Finds the real JPEG EOI (0xFF 0xD9) by first walking segment headers to
+/// locate the Start of Scan marker (0xFF 0xDA), then scanning entropy-coded
+/// data from there.
+///
+/// Without this, the generic footer search would stop at the thumbnail's
+/// 0xFF 0xD9 embedded inside the APP1/EXIF segment, recovering only the small
+/// thumbnail instead of the full-resolution image.
+fn jpeg_find_end(
+    file: &mut std::fs::File,
+    start: u64,
+    search_end: u64,
+) -> u64 {
+    // Read up to 64 KB to walk segment headers (enough for any EXIF blob).
+    const HDR_BUF: usize = 65536;
+    let to_read = ((search_end - start) as usize).min(HDR_BUF);
+    let _ = file.seek(SeekFrom::Start(start));
+    let mut hdr = vec![0u8; to_read];
+    let n = file.read(&mut hdr).unwrap_or(0);
+    let hdr = &hdr[..n];
+
+    // Walk JPEG segments to find SOS (Start of Scan).
+    let mut sos_data_abs: Option<u64> = None;
+    if n >= 2 && hdr[0] == 0xFF && hdr[1] == 0xD8 {
+        let mut i = 2usize;
+        while i + 1 < n {
+            if hdr[i] != 0xFF {
+                break; // malformed / hit image data
+            }
+            let marker = hdr[i + 1];
+            match marker {
+                0xD8 => { i += 2; } // SOI (no length field)
+                0xD9 => { i += 2; } // EOI before SOS — shouldn't happen
+                0xDA => {
+                    // SOS: skip the SOS header (length-prefixed), then image data begins.
+                    if i + 3 < n {
+                        let sos_len = u16::from_be_bytes([hdr[i + 2], hdr[i + 3]]) as usize;
+                        sos_data_abs = Some(start + i as u64 + 2 + sos_len as u64);
+                    } else {
+                        sos_data_abs = Some(start + i as u64 + 4);
+                    }
+                    break;
+                }
+                0xD0..=0xD7 | 0x01 => { i += 2; } // RST / TEM (no length)
+                _ => {
+                    // All other markers carry a 2-byte length.
+                    if i + 3 >= n { break; }
+                    let seg_len = u16::from_be_bytes([hdr[i + 2], hdr[i + 3]]) as usize;
+                    if seg_len < 2 { break; }
+                    i += 2 + seg_len;
+                }
+            }
+        }
+    }
+
+    // Search for 0xFF 0xD9 starting *after* the SOS header.
+    // In entropy-coded data, 0xFF bytes are stuffed as 0xFF 0x00, so the first
+    // un-stuffed 0xFF 0xD9 is the genuine EOI.
+    let search_from = sos_data_abs.unwrap_or(start);
+    let _ = file.seek(SeekFrom::Start(search_from));
+
+    let mut scan_buf = vec![0u8; BLOCK_SIZE];
+    let mut pos = search_from;
+    let mut last_byte: u8 = 0;
+
+    while pos < search_end {
+        let to_read = ((search_end - pos) as usize).min(BLOCK_SIZE);
+        match file.read(&mut scan_buf[..to_read]) {
+            Ok(0) => break,
+            Ok(n) => {
+                // Handle 0xFF 0xD9 spanning a block boundary.
+                if last_byte == 0xFF && scan_buf[0] == 0xD9 {
+                    return pos + 1;
+                }
+                if let Some(found) = scan_buf[..n].windows(2).position(|w| w == [0xFF, 0xD9]) {
+                    return pos + found as u64 + 2;
+                }
+                last_byte = scan_buf[n - 1];
+                pos += n as u64;
+            }
+            Err(_) => {
+                pos += SECTOR_SIZE;
+                last_byte = 0;
+                let _ = file.seek(SeekFrom::Start(pos));
+            }
+        }
+    }
+
+    // EOI not found within max_size — return limit (file will be marked fragmented).
+    search_end
 }
 
 // ── Fragment reassembly ───────────────────────────────────────────────────────
