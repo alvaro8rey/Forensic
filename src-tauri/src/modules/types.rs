@@ -21,16 +21,23 @@ pub enum FileType {
     JPEG,
     PNG,
     GIF,
+    TIFF,
+    BMP,
     PDF,
     DOCX,   // ZIP-based (DOCX/XLSX/PPTX)
     DOC,    // OLE2 compound (DOC/XLS/PPT)
     ZIP,
     RAR,
+    SevenZ,
     EXE,
     MP4,
-    MP3,
     AVI,
+    MKV,
+    MP3,
+    WAV,
+    FLAC,
     SQLite,
+    TXT,
     Unknown(String),
 }
 
@@ -40,19 +47,35 @@ impl std::fmt::Display for FileType {
             FileType::JPEG   => write!(f, "JPEG"),
             FileType::PNG    => write!(f, "PNG"),
             FileType::GIF    => write!(f, "GIF"),
+            FileType::TIFF   => write!(f, "TIFF"),
+            FileType::BMP    => write!(f, "BMP"),
             FileType::PDF    => write!(f, "PDF"),
             FileType::DOCX   => write!(f, "DOCX"),
             FileType::DOC    => write!(f, "DOC"),
             FileType::ZIP    => write!(f, "ZIP"),
             FileType::RAR    => write!(f, "RAR"),
+            FileType::SevenZ => write!(f, "7Z"),
             FileType::EXE    => write!(f, "EXE"),
             FileType::MP4    => write!(f, "MP4"),
-            FileType::MP3    => write!(f, "MP3"),
             FileType::AVI    => write!(f, "AVI"),
+            FileType::MKV    => write!(f, "MKV"),
+            FileType::MP3    => write!(f, "MP3"),
+            FileType::WAV    => write!(f, "WAV"),
+            FileType::FLAC   => write!(f, "FLAC"),
             FileType::SQLite => write!(f, "SQLite"),
+            FileType::TXT    => write!(f, "TXT"),
             FileType::Unknown(ext) => write!(f, "{}", ext),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ScanStatus {
+    Idle,
+    Scanning,
+    Paused,
+    Completed,
+    Error(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,15 +87,6 @@ pub struct ScanProgress {
     pub scan_speed_mb: f64,
     pub elapsed_seconds: u64,
     pub status: ScanStatus,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum ScanStatus {
-    Idle,
-    Scanning,
-    Paused,
-    Completed,
-    Error(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,99 +162,215 @@ pub enum ShredStatus {
     Error(String),
 }
 
-/// Magic byte signatures for file carving
+/// Magic byte signatures for file carving.
 pub struct FileSignature {
     pub header: Vec<u8>,
     pub footer: Option<Vec<u8>>,
     pub file_type: FileType,
     pub max_size: u64,
+    /// Optional secondary check: (offset_from_match_start, expected_bytes).
+    /// After matching `header`, verifies that the bytes at the given offset
+    /// equal `expected_bytes`.  Used to disambiguate RIFF variants (AVI vs WAV),
+    /// eliminate BMP false-positives, etc.
+    pub verify: Option<(usize, Vec<u8>)>,
 }
 
 impl FileSignature {
     pub fn all_signatures() -> Vec<FileSignature> {
         vec![
+            // ── Images ───────────────────────────────────────────────────────
             FileSignature {
                 header: vec![0xFF, 0xD8, 0xFF],
                 footer: Some(vec![0xFF, 0xD9]),
                 file_type: FileType::JPEG,
-                max_size: 50 * 1024 * 1024, // 50MB
+                max_size: 50 * 1024 * 1024,
+                verify: None,
             },
             FileSignature {
                 header: vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
                 footer: Some(vec![0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82]),
                 file_type: FileType::PNG,
-                max_size: 100 * 1024 * 1024, // 100MB
-            },
-            FileSignature {
-                header: vec![0x25, 0x50, 0x44, 0x46, 0x2D], // %PDF-
-                footer: Some(vec![0x25, 0x25, 0x45, 0x4F, 0x46]), // %%EOF
-                file_type: FileType::PDF,
-                max_size: 200 * 1024 * 1024, // 200MB
-            },
-            FileSignature {
-                header: vec![0x50, 0x4B, 0x03, 0x04], // ZIP/DOCX/XLSX
-                footer: Some(vec![0x50, 0x4B, 0x05, 0x06]),
-                file_type: FileType::DOCX,
                 max_size: 100 * 1024 * 1024,
+                verify: None,
             },
-            FileSignature {
-                // MZ + standard DOS stub (0x90 0x00) — filters random MZ false positives.
-                // Pure "4D 5A" matches thousands of locations in unrelated data.
-                header: vec![0x4D, 0x5A, 0x90, 0x00],
-                footer: None,
-                file_type: FileType::EXE,
-                max_size: 50 * 1024 * 1024, // 50 MB cap — realistic executable size
-            },
-            FileSignature {
-                header: vec![0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70], // MP4
-                footer: None,
-                file_type: FileType::MP4,
-                max_size: 4 * 1024 * 1024 * 1024, // 4GB
-            },
-            FileSignature {
-                header: vec![0x49, 0x44, 0x33], // ID3 - MP3
-                footer: None,
-                file_type: FileType::MP3,
-                max_size: 50 * 1024 * 1024,
-            },
-            // ── New formats ──────────────────────────────────────────────────
             FileSignature {
                 // GIF87a or GIF89a
                 header: vec![0x47, 0x49, 0x46, 0x38],
                 footer: Some(vec![0x00, 0x3B]),
                 file_type: FileType::GIF,
-                max_size: 20 * 1024 * 1024, // 20 MB
+                max_size: 20 * 1024 * 1024,
+                verify: None,
             },
             FileSignature {
-                // OLE2 Compound Document: covers DOC, XLS, PPT (Office 97-2003)
+                // TIFF little-endian (II)
+                header: vec![0x49, 0x49, 0x2A, 0x00],
+                footer: None,
+                file_type: FileType::TIFF,
+                max_size: 200 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // TIFF big-endian (MM)
+                header: vec![0x4D, 0x4D, 0x00, 0x2A],
+                footer: None,
+                file_type: FileType::TIFF,
+                max_size: 200 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // BMP: "BM" magic + bytes 6–9 (reserved) must be zero
+                header: vec![0x42, 0x4D],
+                footer: None,
+                file_type: FileType::BMP,
+                max_size: 50 * 1024 * 1024,
+                verify: Some((6, vec![0x00, 0x00, 0x00, 0x00])),
+            },
+
+            // ── Documents ────────────────────────────────────────────────────
+            FileSignature {
+                header: vec![0x25, 0x50, 0x44, 0x46, 0x2D], // %PDF-
+                footer: Some(vec![0x25, 0x25, 0x45, 0x4F, 0x46]), // %%EOF
+                file_type: FileType::PDF,
+                max_size: 200 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // ZIP-based Office (DOCX/XLSX/PPTX) and plain ZIP
+                header: vec![0x50, 0x4B, 0x03, 0x04],
+                footer: Some(vec![0x50, 0x4B, 0x05, 0x06]),
+                file_type: FileType::DOCX,
+                max_size: 100 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // OLE2 Compound Document (Word/Excel/PowerPoint 97–2003)
                 header: vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1],
                 footer: None,
                 file_type: FileType::DOC,
                 max_size: 100 * 1024 * 1024,
+                verify: None,
             },
+
+            // ── Archives ─────────────────────────────────────────────────────
             FileSignature {
-                // RAR 1.5+ archive
+                // RAR 1.5–4.x
                 header: vec![0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00],
                 footer: None,
                 file_type: FileType::RAR,
-                max_size: 2 * 1024 * 1024 * 1024, // 2 GB
+                max_size: 2 * 1024 * 1024 * 1024,
+                verify: None,
             },
             FileSignature {
-                // RAR 5.0+ archive (different signature)
+                // RAR 5.0+
                 header: vec![0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00],
                 footer: None,
                 file_type: FileType::RAR,
                 max_size: 2 * 1024 * 1024 * 1024,
+                verify: None,
             },
             FileSignature {
-                // AVI (RIFF....AVI )
-                header: vec![0x52, 0x49, 0x46, 0x46],
+                // 7-Zip
+                header: vec![0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C],
+                footer: None,
+                file_type: FileType::SevenZ,
+                max_size: 2 * 1024 * 1024 * 1024,
+                verify: None,
+            },
+
+            // ── Executables ──────────────────────────────────────────────────
+            FileSignature {
+                // MZ + standard DOS stub (filters random MZ false-positives)
+                header: vec![0x4D, 0x5A, 0x90, 0x00],
+                footer: None,
+                file_type: FileType::EXE,
+                max_size: 50 * 1024 * 1024,
+                verify: None,
+            },
+
+            // ── Video ─────────────────────────────────────────────────────────
+            // MP4/MOV/M4V: ISO Base Media ftyp box — four common box sizes
+            FileSignature {
+                header: vec![0x00, 0x00, 0x00, 0x14, 0x66, 0x74, 0x79, 0x70],
+                footer: None,
+                file_type: FileType::MP4,
+                max_size: 4 * 1024 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                header: vec![0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70],
+                footer: None,
+                file_type: FileType::MP4,
+                max_size: 4 * 1024 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                header: vec![0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70],
+                footer: None,
+                file_type: FileType::MP4,
+                max_size: 4 * 1024 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                header: vec![0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70],
+                footer: None,
+                file_type: FileType::MP4,
+                max_size: 4 * 1024 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // AVI: RIFF container — verify "AVI " at offset 8
+                header: vec![0x52, 0x49, 0x46, 0x46], // RIFF
                 footer: None,
                 file_type: FileType::AVI,
-                max_size: 4 * 1024 * 1024 * 1024, // 4 GB
+                max_size: 4 * 1024 * 1024 * 1024,
+                verify: Some((8, vec![0x41, 0x56, 0x49, 0x20])), // "AVI "
             },
             FileSignature {
-                // SQLite 3 database — extremely useful for mobile forensics
+                // MKV / WebM: EBML header
+                header: vec![0x1A, 0x45, 0xDF, 0xA3],
+                footer: None,
+                file_type: FileType::MKV,
+                max_size: 4 * 1024 * 1024 * 1024,
+                verify: None,
+            },
+
+            // ── Audio ─────────────────────────────────────────────────────────
+            FileSignature {
+                // MP3 with ID3v2.3 tag
+                header: vec![0x49, 0x44, 0x33, 0x03],
+                footer: None,
+                file_type: FileType::MP3,
+                max_size: 50 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // MP3 with ID3v2.4 tag
+                header: vec![0x49, 0x44, 0x33, 0x04],
+                footer: None,
+                file_type: FileType::MP3,
+                max_size: 50 * 1024 * 1024,
+                verify: None,
+            },
+            FileSignature {
+                // WAV: RIFF container — verify "WAVE" at offset 8
+                header: vec![0x52, 0x49, 0x46, 0x46], // RIFF
+                footer: None,
+                file_type: FileType::WAV,
+                max_size: 500 * 1024 * 1024,
+                verify: Some((8, vec![0x57, 0x41, 0x56, 0x45])), // "WAVE"
+            },
+            FileSignature {
+                // FLAC: "fLaC" stream marker
+                header: vec![0x66, 0x4C, 0x61, 0x43],
+                footer: None,
+                file_type: FileType::FLAC,
+                max_size: 500 * 1024 * 1024,
+                verify: None,
+            },
+
+            // ── Database ──────────────────────────────────────────────────────
+            FileSignature {
+                // SQLite 3 — 16-byte header string
                 header: vec![
                     0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x20, 0x66,
                     0x6F, 0x72, 0x6D, 0x61, 0x74, 0x20, 0x33, 0x00,
@@ -248,6 +378,7 @@ impl FileSignature {
                 footer: None,
                 file_type: FileType::SQLite,
                 max_size: 512 * 1024 * 1024,
+                verify: None,
             },
         ]
     }

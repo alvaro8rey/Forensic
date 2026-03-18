@@ -28,18 +28,26 @@ function FileIcon({ type }: { type: string }) {
     case "JPEG":
     case "PNG":
     case "GIF":
+    case "TIFF":
+    case "BMP":
       return <FileImage size={15} className={`${cls} text-pink-400`} />;
     case "PDF":
       return <FileText size={15} className={`${cls} text-orange-400`} />;
+    case "TXT":
+      return <FileText size={15} className={`${cls} text-gray-300`} />;
     case "MP4":
     case "AVI":
+    case "MKV":
       return <Video size={15} className={`${cls} text-purple-400`} />;
     case "MP3":
+    case "WAV":
+    case "FLAC":
       return <Music size={15} className={`${cls} text-green-400`} />;
     case "ZIP":
     case "DOCX":
     case "DOC":
     case "RAR":
+    case "7Z":
       return <Archive size={15} className={`${cls} text-yellow-400`} />;
     case "SQLite":
       return <FileText size={15} className={`${cls} text-blue-400`} />;

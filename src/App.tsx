@@ -137,9 +137,26 @@ export default function App() {
     setScanState("idle");
   }
 
+  function getFileExt(fileType: string): string {
+    const map: Record<string, string> = {
+      JPEG: "jpg", PNG: "png", GIF: "gif", TIFF: "tif", BMP: "bmp",
+      PDF: "pdf", DOCX: "docx", DOC: "doc", ZIP: "zip",
+      RAR: "rar", "7Z": "7z", EXE: "exe",
+      MP4: "mp4", AVI: "avi", MKV: "mkv",
+      MP3: "mp3", WAV: "wav", FLAC: "flac",
+      SQLite: "db", TXT: "txt",
+    };
+    return map[fileType] ?? "bin";
+  }
+
   async function recoverFile(file: RecoveredFile) {
+    const ext = getFileExt(file.file_type);
     const dest = await save({
-      defaultPath: `recovered_${file.file_type.toLowerCase()}_${file.id}.${file.file_type.toLowerCase()}`,
+      defaultPath: `recovered_${file.file_type.toLowerCase()}_${file.id}.${ext}`,
+      filters: [
+        { name: file.file_type, extensions: [ext] },
+        { name: "All files", extensions: ["*"] },
+      ],
       title: t("recovery.recoverFile"),
     });
     if (!dest) return;

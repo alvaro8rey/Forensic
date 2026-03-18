@@ -8,9 +8,12 @@ use tracing::{debug, info, warn};
 
 use super::types::{FileSignature, FileType, RecoveredFile, ScanProgress, ScanStatus};
 
-const BLOCK_SIZE: usize = 512 * 1024; // 512KB read blocks
+const BLOCK_SIZE: usize = 512 * 1024; // 512 KB read blocks
 const SECTOR_SIZE: u64 = 512;
-const OVERLAP_SIZE: usize = 16; // Bytes to overlap between blocks for split-signature detection
+/// Overlap between consecutive blocks so signatures spanning a block boundary
+/// are not missed.  Must be >= longest (header + verify_offset + verify_len).
+/// AVI/WAV need 4 (RIFF) + 8 + 4 = 16, BMP needs 2 + 6 + 4 = 12 → 32 is safe.
+const OVERLAP_SIZE: usize = 32;
 
 pub struct FileCarver {
     device_path: String,
@@ -66,15 +69,29 @@ impl FileCarver {
                 Ok(n) => {
                     let window = &buffer[..OVERLAP_SIZE + n];
 
-                    // Search each signature within this window
+                    // ── Signature-based carving ───────────────────────────────
                     for sig in &signatures {
-                        let matches = self.find_signature_offsets(window, &sig.header);
+                        let matches = find_signature_offsets(window, &sig.header);
                         for local_offset in matches {
-                            let abs_offset = if offset == 0 {
-                                local_offset as u64
-                            } else {
-                                offset - OVERLAP_SIZE as u64 + local_offset as u64
-                            };
+                            // Secondary verify check (e.g. RIFF→AVI vs WAV, BMP reserved)
+                            if let Some((v_off, v_bytes)) = &sig.verify {
+                                let v_start = local_offset + v_off;
+                                let v_end = v_start + v_bytes.len();
+                                if v_end > window.len()
+                                    || &window[v_start..v_end] != v_bytes.as_slice()
+                                {
+                                    continue; // verification failed
+                                }
+                            }
+
+                            // Compute absolute device offset.
+                            // Unified formula works for both the first block (offset=0,
+                            // where the first OVERLAP_SIZE bytes are zeros) and all
+                            // subsequent blocks.
+                            let abs_offset = (offset as i64
+                                - OVERLAP_SIZE as i64
+                                + local_offset as i64)
+                                .max(0) as u64;
 
                             debug!(
                                 "Found {:?} signature at 0x{:016X}",
@@ -94,6 +111,16 @@ impl FileCarver {
                                 abs_offset, size, is_fragmented,
                             );
 
+                            let preview_available = matches!(
+                                sig.file_type,
+                                FileType::JPEG
+                                    | FileType::PNG
+                                    | FileType::GIF
+                                    | FileType::BMP
+                                    | FileType::TIFF
+                                    | FileType::TXT
+                            );
+
                             recovered.push(RecoveredFile {
                                 id: file_id,
                                 file_type: sig.file_type.clone(),
@@ -108,10 +135,7 @@ impl FileCarver {
                                 is_fragmented,
                                 fragment_count: if is_fragmented { 2 } else { 1 },
                                 sector_overwritten: recovery_prob < 0.3,
-                                preview_available: matches!(
-                                    sig.file_type,
-                                    FileType::JPEG | FileType::PNG | FileType::GIF
-                                ),
+                                preview_available,
                                 thumbnail_base64: None,
                             });
 
@@ -120,14 +144,71 @@ impl FileCarver {
                         }
                     }
 
+                    // ── Text-file detection ───────────────────────────────────
+                    // Check each 512-byte sector in the newly-read portion of the
+                    // window.  When a sector looks like plain text we measure how
+                    // far the text continues and record it as a TXT file.
+                    // Skip the very first 4 KB of the device (MBR/VBR metadata).
+                    let mut ts = OVERLAP_SIZE;
+                    while ts + 512 <= OVERLAP_SIZE + n {
+                        let sector = &buffer[ts..ts + 512];
+                        if is_text_block(sector) {
+                            let abs_txt = (offset as i64 - OVERLAP_SIZE as i64 + ts as i64)
+                                .max(0) as u64;
+
+                            let in_metadata = abs_txt < 4096;
+                            let already_covered = recovered.iter().any(|f| {
+                                f.file_type == FileType::TXT
+                                    && abs_txt >= f.offset_start
+                                    && abs_txt < f.offset_end
+                            });
+
+                            if !in_metadata && !already_covered {
+                                let txt_end = find_text_end(&mut file, abs_txt, total_size);
+                                let txt_size = txt_end.saturating_sub(abs_txt);
+
+                                if txt_size >= 128 {
+                                    let prob = self.calculate_recovery_probability(
+                                        abs_txt, txt_size, false,
+                                    );
+                                    recovered.push(RecoveredFile {
+                                        id: file_id,
+                                        file_type: FileType::TXT,
+                                        offset_start: abs_txt,
+                                        offset_end: txt_end,
+                                        size_bytes: txt_size,
+                                        recovery_probability: prob,
+                                        signature_matched: "TEXT".to_string(),
+                                        is_fragmented: false,
+                                        fragment_count: 1,
+                                        sector_overwritten: false,
+                                        preview_available: true,
+                                        thumbnail_base64: None,
+                                    });
+                                    file_id += 1;
+                                    self.found_count.fetch_add(1, Ordering::Relaxed);
+
+                                    // Jump past the detected text block
+                                    let skip_bytes = txt_size as usize;
+                                    ts += ((skip_bytes / 512) + 1) * 512;
+                                    continue;
+                                }
+                            }
+                        }
+                        ts += 512;
+                    }
+
                     // Save tail for next iteration overlap
                     let tail_start = if n >= OVERLAP_SIZE { n - OVERLAP_SIZE } else { 0 };
-                    tail_overlap.copy_from_slice(&buffer[OVERLAP_SIZE + tail_start..OVERLAP_SIZE + tail_start + OVERLAP_SIZE]);
+                    tail_overlap.copy_from_slice(
+                        &buffer[OVERLAP_SIZE + tail_start..OVERLAP_SIZE + tail_start + OVERLAP_SIZE],
+                    );
 
                     offset += n as u64;
                     self.bytes_scanned.store(offset, Ordering::Relaxed);
 
-                    // Seek back to realign (we always read from true offset)
+                    // Restore cursor for next read (find_file_end / find_text_end
+                    // may have moved it).
                     file.seek(SeekFrom::Start(offset))?;
 
                     // Emit progress
@@ -150,50 +231,30 @@ impl FileCarver {
                 }
                 Err(e) => {
                     warn!("Read error at offset 0x{:X}: {}", offset, e);
-                    // Skip bad sector and continue
                     offset += SECTOR_SIZE;
                     file.seek(SeekFrom::Start(offset))?;
                 }
             }
         }
 
-        // Deduplicate: the block-overlap mechanism can detect the same signature
-        // twice when it falls in the last OVERLAP_SIZE bytes of a block.
-        // Both detections produce the same abs_offset, so we filter by (type, offset).
+        // Deduplicate by (type, offset) — the overlap window can produce two
+        // detections for the same signature at the same absolute position.
         let before = recovered.len();
         let mut seen = std::collections::HashSet::new();
         recovered.retain(|f| {
-            // Use a string key combining type and offset for HashSet compatibility
             let key = format!("{:?}:{}", f.file_type, f.offset_start);
             seen.insert(key)
         });
-        // Re-assign sequential IDs after dedup
         for (i, f) in recovered.iter_mut().enumerate() {
             f.id = i as u64;
         }
 
-        info!("Scan complete. {} files found ({} duplicates removed).", recovered.len(), before - recovered.len());
+        info!(
+            "Scan complete. {} files found ({} duplicates removed).",
+            recovered.len(),
+            before - recovered.len()
+        );
         Ok(recovered)
-    }
-
-    fn find_signature_offsets(&self, haystack: &[u8], needle: &[u8]) -> Vec<usize> {
-        if needle.is_empty() || haystack.len() < needle.len() {
-            return vec![];
-        }
-
-        let mut positions = Vec::new();
-        let mut i = 0;
-
-        // Boyer-Moore-Horspool simplified
-        while i <= haystack.len() - needle.len() {
-            if &haystack[i..i + needle.len()] == needle {
-                positions.push(i);
-                i += 1;
-            } else {
-                i += 1;
-            }
-        }
-        positions
     }
 
     fn find_file_end(
@@ -205,7 +266,7 @@ impl FileCarver {
         total_size: u64,
     ) -> (u64, bool) {
         let footer = match footer {
-            None => return (start + max_size.min(total_size - start), false),
+            None => return ((start + max_size).min(total_size), false),
             Some(f) => f,
         };
 
@@ -223,8 +284,9 @@ impl FileCarver {
             match file.read(&mut scan_buf[..to_read]) {
                 Ok(0) => break,
                 Ok(n) => {
-                    // Check for null-byte gaps indicating fragmentation
-                    let null_run = scan_buf[..n].windows(512).any(|w| w.iter().all(|&b| b == 0));
+                    // Null-byte gap detection → fragmentation heuristic
+                    let null_run =
+                        scan_buf[..n].windows(512).any(|w| w.iter().all(|&b| b == 0));
                     if null_run && pos > start + SECTOR_SIZE {
                         gap_count += 1;
                         if gap_count > 2 {
@@ -232,7 +294,6 @@ impl FileCarver {
                         }
                     }
 
-                    // Search for footer
                     if let Some(found) = scan_buf[..n]
                         .windows(footer.len())
                         .position(|w| w == footer.as_slice())
@@ -264,19 +325,14 @@ impl FileCarver {
     ) -> f32 {
         let mut prob: f32 = 1.0;
 
-        // Fragmentation penalty
         if is_fragmented {
             prob -= 0.35;
         }
-
-        // Small files are less likely to be partially overwritten
         if size < 4096 {
             prob += 0.1;
         } else if size > 50 * 1024 * 1024 {
             prob -= 0.2;
         }
-
-        // Offset heuristic: early disk sectors are reused more often
         if offset < 1024 * 1024 * 1024 {
             prob -= 0.15;
         }
@@ -290,11 +346,6 @@ impl FileCarver {
         use windows_sys::Win32::Storage::FileSystem::{
             FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
         };
-
-        // FILE_FLAG_NO_BUFFERING is intentionally omitted: it requires every
-        // read buffer pointer and offset to be sector-aligned (512 bytes), but
-        // the overlap-window trick uses a 16-byte prefix that breaks alignment.
-        // FILE_FLAG_SEQUENTIAL_SCAN is enough for a good sequential read-ahead.
         std::fs::OpenOptions::new()
             .read(true)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
@@ -311,9 +362,6 @@ impl FileCarver {
             .context(format!("Failed to open device: {}", self.device_path))
     }
 
-    /// Returns the byte size of a file or raw device.
-    /// On Windows, SeekFrom::End(0) fails on volumes/drives (ERROR_INVALID_PARAMETER 87).
-    /// Try IOCTL_DISK_GET_LENGTH_INFO first; fall back to seek for regular files.
     #[cfg(target_os = "windows")]
     fn get_device_size(&self, file: &mut std::fs::File) -> Result<u64> {
         use std::os::windows::io::AsRawHandle;
@@ -342,7 +390,6 @@ impl FileCarver {
             return Ok(length);
         }
 
-        // Regular file fallback
         let size = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(0))?;
         Ok(size)
@@ -356,30 +403,92 @@ impl FileCarver {
     }
 }
 
-/// Fragmentation reassembly: attempts to reconstruct non-contiguous cluster chains
+// ── Free helpers ─────────────────────────────────────────────────────────────
+
+/// Boyer-Moore-Horspool simplified: finds all occurrences of `needle` in `haystack`.
+fn find_signature_offsets(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return vec![];
+    }
+    let mut positions = Vec::new();
+    let mut i = 0;
+    while i <= haystack.len() - needle.len() {
+        if &haystack[i..i + needle.len()] == needle {
+            positions.push(i);
+        }
+        i += 1;
+    }
+    positions
+}
+
+/// Returns `true` if the first 128 bytes of `data` are ≥ 85% printable ASCII.
+fn is_text_block(data: &[u8]) -> bool {
+    if data.is_empty() {
+        return false;
+    }
+    let check_len = data.len().min(128);
+    let printable = data[..check_len]
+        .iter()
+        .filter(|&&b| matches!(b, b'\t' | b'\n' | b'\r' | 0x20..=0x7E))
+        .count();
+    (printable as f64 / check_len as f64) >= 0.85
+}
+
+/// Reads forward from `start` until printable-ASCII density drops below 60%,
+/// the end-of-device is reached, or 10 MB have been consumed.
+/// Returns the byte offset just past the last printable character.
+fn find_text_end(file: &mut std::fs::File, start: u64, total_size: u64) -> u64 {
+    const MAX_TXT: u64 = 10 * 1024 * 1024;
+    let limit = (start + MAX_TXT).min(total_size);
+    let mut buf = vec![0u8; 4096];
+    let mut pos = start;
+    let _ = file.seek(SeekFrom::Start(start));
+
+    while pos < limit {
+        let to_read = (limit - pos).min(4096) as usize;
+        match file.read(&mut buf[..to_read]) {
+            Ok(0) => break,
+            Ok(n) => {
+                let printable = buf[..n]
+                    .iter()
+                    .filter(|&&b| matches!(b, b'\t' | b'\n' | b'\r' | 0x20..=0x7E))
+                    .count();
+                if (printable as f64 / n as f64) < 0.60 {
+                    // Find the last printable byte in this chunk
+                    let end_in_chunk = buf[..n]
+                        .iter()
+                        .rposition(|&b| matches!(b, b'\t' | b'\n' | b'\r' | 0x20..=0x7E))
+                        .map(|p| p + 1)
+                        .unwrap_or(0);
+                    return pos + end_in_chunk as u64;
+                }
+                pos += n as u64;
+            }
+            Err(_) => break,
+        }
+    }
+    pos
+}
+
+// ── Fragment reassembly ───────────────────────────────────────────────────────
+
 pub struct FragmentReassembler;
 
 impl FragmentReassembler {
-    /// Given a set of candidate fragments (by offset), attempt to reassemble
-    /// by matching tail entropy with head patterns of subsequent fragments.
     pub fn reassemble(
         file: &mut std::fs::File,
-        fragments: &[(u64, u64)], // (offset, size) pairs
+        fragments: &[(u64, u64)],
     ) -> Result<Vec<u8>> {
         let mut output = Vec::new();
-
         for &(offset, size) in fragments {
             let mut buf = vec![0u8; size as usize];
             file.seek(SeekFrom::Start(offset))?;
             file.read_exact(&mut buf)?;
             output.extend_from_slice(&buf);
         }
-
         Ok(output)
     }
 
-    /// Entropy-based fragment matching: high entropy = compressed/encrypted data,
-    /// low entropy = text/structured data
     pub fn shannon_entropy(data: &[u8]) -> f64 {
         if data.is_empty() {
             return 0.0;

@@ -210,10 +210,13 @@ async fn preview_file(
 
     // Return "mime:base64data" so the frontend knows the content type
     let mime = match type_str.as_str() {
-        "JPEG" => "image/jpeg",
-        "PNG"  => "image/png",
-        "GIF"  => "image/gif",
-        _      => "application/octet-stream",
+        "JPEG"   => "image/jpeg",
+        "PNG"    => "image/png",
+        "GIF"    => "image/gif",
+        "BMP"    => "image/bmp",
+        "TIFF"   => "image/tiff",
+        "TXT"    => "text/plain",
+        _        => "application/octet-stream",
     };
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
