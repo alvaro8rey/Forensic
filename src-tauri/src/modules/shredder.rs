@@ -6,7 +6,7 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use tracing::{info, warn};
 use zeroize::Zeroize;
