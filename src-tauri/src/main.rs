@@ -264,11 +264,8 @@ async fn recover_file(
     let mut src = open_device_ro(&device_path)
         .map_err(|e| format!("Cannot open device '{}': {}", device_path, e))?;
 
-    src.seek(SeekFrom::Start(offset_start))
-        .map_err(|e| format!("Seek failed at 0x{:X}: {}", offset_start, e))?;
-
-    // Robust read: never fail just because size_bytes was an estimate
-    let data = read_bytes_robust(&mut src, read_size)
+    // Sector-aligned read — works on raw Windows devices (\\.\X:)
+    let data = read_device_at(&mut src, offset_start, read_size)
         .map_err(|e| format!("Read failed at 0x{:X}: {}", offset_start, e))?;
 
     // Write recovered bytes to the user-chosen destination
@@ -329,9 +326,7 @@ async fn recover_batch(
         let dest_path = format!("{}/{}", destination_folder.trim_end_matches(['/', '\\']), filename);
 
         let result = (|| -> Result<BatchRecoverResult, String> {
-            src.seek(SeekFrom::Start(offset_start))
-                .map_err(|e| format!("Seek failed: {}", e))?;
-            let data = read_bytes_robust(&mut src, read_size)
+            let data = read_device_at(&mut src, offset_start, read_size)
                 .map_err(|e| format!("Read failed: {}", e))?;
             let validation = validate_bytes(&data, &type_str);
             let mut dst = std::fs::File::create(&dest_path)
@@ -396,8 +391,7 @@ async fn export_recovered_zip(
     let mut count = 0usize;
     for (_id, offset_start, size_bytes, filename) in entries {
         let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
-        if src.seek(SeekFrom::Start(offset_start)).is_err() { continue; }
-        let data = match read_bytes_robust(&mut src, read_size) {
+        let data = match read_device_at(&mut src, offset_start, read_size) {
             Ok(d) => d,
             Err(_) => continue,
         };
@@ -446,11 +440,9 @@ async fn preview_file(
     }
     let mut src = open_device_ro(&device_path)
         .map_err(|e| format!("Cannot open device: {}", e))?;
-    src.seek(SeekFrom::Start(offset_start))
-        .map_err(|e| format!("Seek failed: {}", e))?;
 
-    // Robust read — don't fail on partial data
-    let data = read_bytes_robust(&mut src, read_size)
+    // Sector-aligned read — works on raw Windows devices
+    let data = read_device_at(&mut src, offset_start, read_size)
         .map_err(|e| format!("Read failed: {}", e))?;
 
     // Return "mime:base64data" so the frontend knows the content type
@@ -468,38 +460,77 @@ async fn preview_file(
     Ok(format!("{}:{}", mime, b64))
 }
 
-// ── Robust read helper ────────────────────────────────────────────────────────
+// ── Device I/O helpers ────────────────────────────────────────────────────────
 
-/// Read up to `max_bytes` from `src` at the current position using 64 KB chunks.
-/// Unlike `read_exact`, this never fails when fewer bytes are available — it just
-/// returns whatever the device gave us.  Returns an error only when zero bytes
-/// could be read at all.
-fn read_bytes_robust(src: &mut std::fs::File, max_bytes: usize) -> Result<Vec<u8>, String> {
-    let mut data: Vec<u8> = Vec::with_capacity(max_bytes.min(64 * 1024 * 1024));
-    let mut buf = vec![0u8; 65536]; // 64 KB chunks
-    let mut remaining = max_bytes;
+/// Windows raw device drivers (\\.\X:) require that **both** the seek offset
+/// and the read length are exact multiples of the physical sector size (512 B).
+/// Non-aligned access returns `ERROR_INVALID_PARAMETER` (os error 87).
+///
+/// This helper:
+///  1. Rounds `offset` **down** to the nearest 512-byte boundary.
+///  2. Rounds the read length **up** so we cover [offset, offset+max_bytes).
+///  3. Reads from the aligned position in 65536-byte (128-sector) chunks.
+///  4. Strips the leading alignment bytes and trims to `max_bytes`.
+///
+/// It never fails because of a too-short device — it returns whatever bytes
+/// are available (partial reads are fine).
+fn read_device_at(
+    src: &mut std::fs::File,
+    offset: u64,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    if max_bytes == 0 {
+        return Ok(Vec::new());
+    }
+    const SECTOR: usize = 512;
+    let sector_u64 = SECTOR as u64;
+
+    // Align the seek address down
+    let aligned_start = (offset / sector_u64) * sector_u64;
+    let skip = (offset - aligned_start) as usize;   // bytes before our payload
+
+    // Total bytes we must read (aligned) to cover the full requested range
+    let need = skip + max_bytes;
+    let aligned_need = (need + SECTOR - 1) & !(SECTOR - 1); // round up
+    let capped = aligned_need.min(512 * 1024 * 1024);       // 512 MB hard cap
+
+    src.seek(SeekFrom::Start(aligned_start))
+        .map_err(|e| format!("Seek failed at 0x{:X}: {}", offset, e))?;
+
+    // Read in 64 KB (128-sector) chunks — always a multiple of 512
+    let mut buf = vec![0u8; 65536];
+    let mut raw: Vec<u8> = Vec::with_capacity(capped.min(64 * 1024 * 1024));
+    let mut remaining = capped;
+
     while remaining > 0 {
-        let to_read = buf.len().min(remaining);
-        match src.read(&mut buf[..to_read]) {
+        let chunk = buf.len().min(remaining); // 65536 is already a multiple of 512
+        match src.read(&mut buf[..chunk]) {
             Ok(0) => break,
             Ok(n) => {
-                data.extend_from_slice(&buf[..n]);
-                remaining -= n;
+                raw.extend_from_slice(&buf[..n]);
+                remaining = remaining.saturating_sub(n);
             }
             Err(e) => {
-                if data.is_empty() {
+                if raw.is_empty() {
                     return Err(format!("Read failed: {}", e));
                 }
-                break; // partial read — return what we have
+                break; // partial read is fine — return what we have
             }
         }
     }
-    if data.is_empty() {
-        return Err("No data at this offset (device may have changed since scan)".to_string());
-    }
-    Ok(data)
-}
 
+    if raw.len() <= skip {
+        return Err(format!(
+            "No data available at offset 0x{:X} (device shorter than expected)",
+            offset
+        ));
+    }
+
+    // Strip alignment prefix, trim to requested size
+    raw.drain(..skip);
+    raw.truncate(max_bytes);
+    Ok(raw)
+}
 
 
 fn validate_bytes(data: &[u8], file_type: &str) -> ValidationStatus {
