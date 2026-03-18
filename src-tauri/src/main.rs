@@ -13,10 +13,11 @@ use tracing_subscriber::EnvFilter;
 
 use modules::{
     carver::FileCarver,
+    fat::FatCarver,
     mft::{DeletedMftEntry, MftParser},
     shredder::Shredder,
     smart::SmartReader,
-    types::{DiskInfo, RecoveredFile, ScanProgress, ShredAlgorithm, ShredOptions, ShredProgress},
+    types::{DiskInfo, RecoveredFile, ScanProgress, ScanStatus, ShredAlgorithm, ShredOptions, ShredProgress, ValidationStatus},
 };
 
 // ─── Global App State ────────────────────────────────────────────────────────
@@ -74,12 +75,56 @@ async fn start_scan(
 
     // Spawn scan thread (blocking I/O)
     thread::spawn(move || {
+        let mut all_results: Vec<RecoveredFile> = Vec::new();
+
+        // ── Phase 1: FAT32/exFAT directory carving (fast) ────────────────
+        let fat_carver = FatCarver::new(path_clone.clone());
+        match fat_carver.scan() {
+            Ok(mut fat_files) => {
+                info!("FAT directory carving: {} deleted entries", fat_files.len());
+                all_results.append(&mut fat_files);
+                // Emit an early progress snapshot so the UI shows FAT results immediately
+                let _ = win_clone.emit("scan-progress", ScanProgress {
+                    bytes_scanned: 0,
+                    total_bytes: 1,
+                    current_offset_hex: "0x0000000000000000".to_string(),
+                    files_found: all_results.len() as u32,
+                    scan_speed_mb: 0.0,
+                    elapsed_seconds: 0,
+                    status: ScanStatus::Scanning,
+                });
+            }
+            Err(e) => {
+                info!("FAT carving skipped ({})", e);
+            }
+        }
+
+        // ── Phase 2: Signature-based carving (slow, emits progress) ──────
         let carver = FileCarver::new(path_clone, tx, cancel);
         match carver.scan() {
-            Ok(files) => {
-                info!("Scan returned {} files", files.len());
-                *results_store.lock().unwrap() = files.clone();
-                let _ = win_clone.emit("scan-complete", files);
+            Ok(sig_files) => {
+                // Merge: FAT entries take priority; skip sig entries whose
+                // (type, sector-aligned offset) already appear in FAT results.
+                let fat_keys: std::collections::HashSet<String> = all_results
+                    .iter()
+                    .map(|f| format!("{:?}:{}", f.file_type, f.offset_start / 512 * 512))
+                    .collect();
+
+                for f in sig_files {
+                    let key = format!("{:?}:{}", f.file_type, f.offset_start / 512 * 512);
+                    if !fat_keys.contains(&key) {
+                        all_results.push(f);
+                    }
+                }
+
+                // Re-assign sequential IDs
+                for (i, f) in all_results.iter_mut().enumerate() {
+                    f.id = i as u64;
+                }
+
+                info!("Total files after merge: {}", all_results.len());
+                *results_store.lock().unwrap() = all_results.clone();
+                let _ = win_clone.emit("scan-complete", all_results);
             }
             Err(e) => {
                 error!("Scan error: {}", e);
@@ -114,14 +159,23 @@ async fn get_scan_results(state: State<'_, AppState>) -> Result<Vec<RecoveredFil
 }
 
 /// Structured result returned by recover_file.
-/// The `key` matches a translation key in the frontend locales
-/// (e.g. "recovery.recoveredMsg") so the UI can display a localised message.
 #[derive(serde::Serialize)]
 struct RecoverResult {
     key: String,
     file_type: String,
     kb: usize,
     path: String,
+    validation: ValidationStatus,
+}
+
+/// Per-file result for batch recovery.
+#[derive(serde::Serialize)]
+struct BatchRecoverResult {
+    file_id: u64,
+    success: bool,
+    path: String,
+    error: Option<String>,
+    validation: Option<ValidationStatus>,
 }
 
 /// Recover (extract) a specific file from disk to a destination.
@@ -169,13 +223,145 @@ async fn recover_file(
         .map_err(|e| format!("Write failed: {}", e))?;
 
     let kb = read_size / 1024;
-    info!("Recovered {} ({} KB) from 0x{:X} → {}", type_str, kb, offset_start, destination_path);
+    let validation = validate_bytes(&data, &type_str);
+    info!("Recovered {} ({} KB) from 0x{:X} → {} [valid={}]",
+        type_str, kb, offset_start, destination_path, validation.is_valid);
     Ok(RecoverResult {
         key: "recovery.recoveredMsg".to_string(),
         file_type: type_str,
         kb,
         path: destination_path,
+        validation,
     })
+}
+
+/// Recover multiple files at once into a destination folder.
+#[tauri::command]
+async fn recover_batch(
+    file_ids: Vec<u64>,
+    destination_folder: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<BatchRecoverResult>, String> {
+    info!("Command: recover_batch {} files → {}", file_ids.len(), destination_folder);
+
+    let entries: Vec<(u64, u64, u64, String, String)> = {
+        let results = state.scan_results.lock().unwrap();
+        file_ids.iter().filter_map(|&id| {
+            results.iter().find(|f| f.id == id).map(|f| {
+                let fname = f.original_name.clone()
+                    .unwrap_or_else(|| {
+                        let ext = crate::modules::fat::ext_to_filetype(&format!(".{}", f.file_type))
+                            .to_string().to_lowercase();
+                        format!("recovered_{}_{}.{}", f.file_type, f.id, ext)
+                    });
+                (f.id, f.offset_start, f.size_bytes, format!("{}", f.file_type), fname)
+            })
+        }).collect()
+    };
+
+    let device_path = state.scan_device.lock().unwrap().clone();
+    if device_path.is_empty() {
+        return Err("No scan device recorded — run a scan first.".to_string());
+    }
+
+    let mut src = open_device_ro(&device_path)
+        .map_err(|e| format!("Cannot open device: {}", e))?;
+
+    let mut batch_results = Vec::new();
+
+    for (id, offset_start, size_bytes, type_str, filename) in entries {
+        let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
+        let dest_path = format!("{}/{}", destination_folder.trim_end_matches(['/', '\\']), filename);
+
+        let result = (|| -> Result<BatchRecoverResult, String> {
+            src.seek(SeekFrom::Start(offset_start))
+                .map_err(|e| format!("Seek failed: {}", e))?;
+            let mut data = vec![0u8; read_size];
+            src.read_exact(&mut data)
+                .map_err(|e| format!("Read failed: {}", e))?;
+            let validation = validate_bytes(&data, &type_str);
+            let mut dst = std::fs::File::create(&dest_path)
+                .map_err(|e| format!("Cannot create file: {}", e))?;
+            dst.write_all(&data).map_err(|e| format!("Write failed: {}", e))?;
+            Ok(BatchRecoverResult {
+                file_id: id,
+                success: true,
+                path: dest_path.clone(),
+                error: None,
+                validation: Some(validation),
+            })
+        })();
+
+        batch_results.push(result.unwrap_or_else(|e| BatchRecoverResult {
+            file_id: id,
+            success: false,
+            path: dest_path,
+            error: Some(e),
+            validation: None,
+        }));
+    }
+
+    Ok(batch_results)
+}
+
+/// Pack selected recovered files into a single ZIP archive.
+#[tauri::command]
+async fn export_recovered_zip(
+    file_ids: Vec<u64>,
+    zip_path: String,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    info!("Command: export_recovered_zip {} files → {}", file_ids.len(), zip_path);
+
+    let entries: Vec<(u64, u64, u64, String)> = {
+        let results = state.scan_results.lock().unwrap();
+        file_ids.iter().filter_map(|&id| {
+            results.iter().find(|f| f.id == id).map(|f| {
+                let ext = format!("{}", f.file_type).to_lowercase();
+                let fname = f.original_name.clone()
+                    .unwrap_or_else(|| format!("recovered_{}_{}.{}", f.file_type, f.id, ext));
+                (f.id, f.offset_start, f.size_bytes, fname)
+            })
+        }).collect()
+    };
+
+    let device_path = state.scan_device.lock().unwrap().clone();
+    if device_path.is_empty() {
+        return Err("No scan device recorded.".to_string());
+    }
+
+    let zip_file = std::fs::File::create(&zip_path)
+        .map_err(|e| format!("Cannot create ZIP: {}", e))?;
+    let mut zip = zip::ZipWriter::new(zip_file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut src = open_device_ro(&device_path)
+        .map_err(|e| format!("Cannot open device: {}", e))?;
+
+    let mut count = 0usize;
+    for (_id, offset_start, size_bytes, filename) in entries {
+        let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
+        if src.seek(SeekFrom::Start(offset_start)).is_err() { continue; }
+        let mut data = vec![0u8; read_size];
+        if src.read_exact(&mut data).is_err() { continue; }
+
+        // Ensure unique filenames inside the ZIP
+        let entry_name = if count == 0 { filename.clone() }
+            else {
+                let dot = filename.rfind('.').unwrap_or(filename.len());
+                format!("{}_{}{}", &filename[..dot], count, &filename[dot..])
+            };
+
+        if zip.start_file(&entry_name, options).is_ok() {
+            let _ = zip.write_all(&data);
+            count += 1;
+        }
+    }
+
+    zip.finish().map_err(|e| format!("ZIP finalize failed: {}", e))?;
+    info!("ZIP export: {} files → {}", count, zip_path);
+    Ok(count)
 }
 
 /// Preview a file: read up to 5 MB and return as base64 (for images/text inline preview).
@@ -221,6 +407,69 @@ async fn preview_file(
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
     Ok(format!("{}:{}", mime, b64))
+}
+
+// ── File validation ───────────────────────────────────────────────────────────
+
+fn validate_bytes(data: &[u8], file_type: &str) -> ValidationStatus {
+    if data.is_empty() {
+        return ValidationStatus { is_valid: false, confidence: 0.0, details: "Empty data".into() };
+    }
+    if data.iter().all(|&b| b == 0) {
+        return ValidationStatus { is_valid: false, confidence: 0.0, details: "Overwritten (all zeros)".into() };
+    }
+
+    match file_type {
+        "JPEG" => {
+            let soi = data.starts_with(&[0xFF, 0xD8, 0xFF]);
+            let eoi = data.len() >= 2 && data[data.len() - 2..] == [0xFF, 0xD9];
+            match (soi, eoi) {
+                (true, true)  => ValidationStatus { is_valid: true,  confidence: 0.95, details: "Valid JPEG (SOI + EOI)".into() },
+                (true, false) => ValidationStatus { is_valid: true,  confidence: 0.60, details: "Partial JPEG – truncated (no EOI)".into() },
+                _             => ValidationStatus { is_valid: false, confidence: 0.10, details: "Invalid JPEG header".into() },
+            }
+        }
+        "PNG" => {
+            let sig = data.len() >= 8 && &data[..8] == b"\x89PNG\r\n\x1A\n";
+            let iend = data.windows(4).any(|w| w == b"IEND");
+            match (sig, iend) {
+                (true, true)  => ValidationStatus { is_valid: true,  confidence: 0.97, details: "Valid PNG (signature + IEND)".into() },
+                (true, false) => ValidationStatus { is_valid: true,  confidence: 0.65, details: "Partial PNG – truncated".into() },
+                _             => ValidationStatus { is_valid: false, confidence: 0.10, details: "Invalid PNG".into() },
+            }
+        }
+        "PDF" => {
+            let hdr = data.starts_with(b"%PDF-");
+            let eof = data.windows(5).any(|w| w == b"%%EOF");
+            match (hdr, eof) {
+                (true, true)  => ValidationStatus { is_valid: true,  confidence: 0.92, details: "Valid PDF".into() },
+                (true, false) => ValidationStatus { is_valid: true,  confidence: 0.55, details: "Partial PDF – truncated".into() },
+                _             => ValidationStatus { is_valid: false, confidence: 0.10, details: "Invalid PDF".into() },
+            }
+        }
+        "DOCX" | "XLSX" | "PPTX" | "ZIP" => {
+            let pk  = data.len() >= 4 && &data[..4] == b"PK\x03\x04";
+            let eocd = data.windows(4).any(|w| w == b"PK\x05\x06");
+            match (pk, eocd) {
+                (true, true)  => ValidationStatus { is_valid: true,  confidence: 0.93, details: "Valid ZIP/Office archive".into() },
+                (true, false) => ValidationStatus { is_valid: true,  confidence: 0.60, details: "Partial ZIP – truncated".into() },
+                _             => ValidationStatus { is_valid: false, confidence: 0.10, details: "Invalid ZIP header".into() },
+            }
+        }
+        "TXT" => {
+            let n = data.len().min(1024);
+            let p = data[..n].iter()
+                .filter(|&&b| matches!(b, b'\t' | b'\n' | b'\r' | 0x20..=0x7E))
+                .count();
+            let pct = (p as f32 / n as f32 * 100.0) as u32;
+            if pct >= 85 {
+                ValidationStatus { is_valid: true, confidence: pct as f32 / 100.0, details: format!("{}% printable ASCII", pct) }
+            } else {
+                ValidationStatus { is_valid: false, confidence: 0.2, details: format!("Only {}% printable ASCII", pct) }
+            }
+        }
+        _ => ValidationStatus { is_valid: true, confidence: 0.50, details: "Signature match only".into() },
+    }
 }
 
 /// Opens a device or file for raw sequential reading (shared, no write access).
@@ -375,6 +624,8 @@ fn main() {
             cancel_scan,
             get_scan_results,
             recover_file,
+            recover_batch,
+            export_recovered_zip,
             preview_file,
             scan_mft,
             get_mft_results,

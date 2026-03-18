@@ -20,6 +20,8 @@ interface Props {
   onRecover: (file: RecoveredFile) => void;
   onPreview: (file: RecoveredFile) => void;
   loading: boolean;
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
 }
 
 function FileIcon({ type }: { type: string }) {
@@ -81,11 +83,25 @@ function formatBytes(bytes: number): string {
 
 type SortKey = "file_type" | "size_bytes" | "recovery_probability";
 
-export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
+export function RecoveryTable({ files, onRecover, onPreview, loading, selectedIds, onSelectionChange }: Props) {
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("recovery_probability");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filter, setFilter] = useState<string>("");
+
+  function toggleOne(id: number) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onSelectionChange(next);
+  }
+
+  function toggleAll() {
+    if (selectedIds.size === sorted.length) {
+      onSelectionChange(new Set());
+    } else {
+      onSelectionChange(new Set(sorted.map((f) => f.id)));
+    }
+  }
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -167,6 +183,14 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
         <table className="w-full text-xs">
           <thead className="bg-[#08080f] border-b border-[#1a1a2e]">
             <tr>
+              <th className="px-2 py-2 w-7">
+                <input
+                  type="checkbox"
+                  className="accent-[#00d4ff] cursor-pointer"
+                  checked={sorted.length > 0 && selectedIds.size === sorted.length}
+                  onChange={toggleAll}
+                />
+              </th>
               <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider w-8">
                 {t("recovery.columns.id")}
               </th>
@@ -188,13 +212,30 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
             {sorted.map((file) => (
               <tr
                 key={file.id}
-                className="hover:bg-[#00d4ff]/3 transition-colors group"
+                className={`hover:bg-[#00d4ff]/3 transition-colors group ${selectedIds.has(file.id) ? "bg-[#00d4ff]/5" : ""}`}
+                onClick={() => toggleOne(file.id)}
               >
+                <td className="px-2 py-2">
+                  <input
+                    type="checkbox"
+                    className="accent-[#00d4ff] cursor-pointer"
+                    checked={selectedIds.has(file.id)}
+                    onChange={() => toggleOne(file.id)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </td>
                 <td className="px-3 py-2 text-gray-700 font-mono">{file.id}</td>
                 <td className="px-3 py-2">
-                  <div className="flex items-center gap-1.5">
-                    <FileIcon type={file.file_type} />
-                    <span className="text-white font-medium">{file.file_type}</span>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <FileIcon type={file.file_type} />
+                      <span className="text-white font-medium">{file.file_type}</span>
+                    </div>
+                    {file.original_name && (
+                      <span className="text-[10px] text-[#00d4ff]/60 font-mono truncate max-w-[140px]" title={file.original_name}>
+                        {file.original_name}
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className="px-3 py-2 text-gray-400 font-mono">
@@ -227,7 +268,7 @@ export function RecoveryTable({ files, onRecover, onPreview, loading }: Props) {
                     )}
                   </div>
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
                     {file.preview_available && (
                       <button

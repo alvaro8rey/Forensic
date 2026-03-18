@@ -1,3 +1,9 @@
+export interface ValidationStatus {
+  is_valid: boolean;
+  confidence: number;
+  details: string;
+}
+
 export interface RecoveredFile {
   id: number;
   file_type: string;
@@ -11,6 +17,15 @@ export interface RecoveredFile {
   sector_overwritten: boolean;
   preview_available: boolean;
   thumbnail_base64: string | null;
+  original_name: string | null;
+}
+
+export interface BatchRecoverResult {
+  file_id: number;
+  success: boolean;
+  path: string;
+  error: string | null;
+  validation: ValidationStatus | null;
 }
 
 export interface ScanProgress {
@@ -72,6 +87,7 @@ export interface RecoverResult {
   file_type: string;
   kb: number;
   path: string;
+  validation: ValidationStatus;
 }
 
 export type AppView = "hunter" | "oblivion" | "dashboard";

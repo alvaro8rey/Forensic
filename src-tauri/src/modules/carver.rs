@@ -249,6 +249,15 @@ impl FileCarver {
             f.id = i as u64;
         }
 
+        // Post-process: disambiguate ZIP-based formats.
+        // All ZIP-signature matches start as DOCX; refine to XLSX/PPTX/ZIP
+        // by inspecting the first local file header filenames (uncompressed ASCII).
+        for f in recovered.iter_mut() {
+            if f.file_type == FileType::DOCX {
+                f.file_type = detect_zip_subtype(&mut file, f.offset_start);
+            }
+        }
+
         info!(
             "Scan complete. {} files found ({} duplicates removed).",
             recovered.len(),
@@ -404,6 +413,24 @@ impl FileCarver {
 }
 
 // ── Free helpers ─────────────────────────────────────────────────────────────
+
+/// Reads up to 2 KB from `offset` and checks for Office/ZIP filename markers
+/// in the raw (uncompressed) local file header filenames.
+fn detect_zip_subtype(file: &mut std::fs::File, offset: u64) -> FileType {
+    let _ = file.seek(SeekFrom::Start(offset));
+    let mut buf = [0u8; 2048];
+    let n = file.read(&mut buf).unwrap_or(0);
+    let data = &buf[..n];
+
+    let has = |pat: &[u8]| data.windows(pat.len()).any(|w| w == pat);
+
+    // Office format markers appear as raw ASCII in local file header names
+    if has(b"word/")  { return FileType::DOCX; }
+    if has(b"xl/")    { return FileType::XLSX; }
+    if has(b"ppt/")   { return FileType::PPTX; }
+
+    FileType::ZIP
+}
 
 /// Boyer-Moore-Horspool simplified: finds all occurrences of `needle` in `haystack`.
 fn find_signature_offsets(haystack: &[u8], needle: &[u8]) -> Vec<usize> {

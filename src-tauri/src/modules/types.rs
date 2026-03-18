@@ -14,6 +14,17 @@ pub struct RecoveredFile {
     pub sector_overwritten: bool,
     pub preview_available: bool,
     pub thumbnail_base64: Option<String>,
+    /// Original filename from FAT32/exFAT directory entry, if available.
+    #[serde(default)]
+    pub original_name: Option<String>,
+}
+
+/// Result of validating a recovered file's byte content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationStatus {
+    pub is_valid: bool,
+    pub confidence: f32,
+    pub details: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -24,9 +35,11 @@ pub enum FileType {
     TIFF,
     BMP,
     PDF,
-    DOCX,   // ZIP-based (DOCX/XLSX/PPTX)
+    DOCX,   // ZIP-based Word
+    XLSX,   // ZIP-based Excel
+    PPTX,   // ZIP-based PowerPoint
     DOC,    // OLE2 compound (DOC/XLS/PPT)
-    ZIP,
+    ZIP,    // Generic ZIP archive
     RAR,
     SevenZ,
     EXE,
@@ -51,6 +64,8 @@ impl std::fmt::Display for FileType {
             FileType::BMP    => write!(f, "BMP"),
             FileType::PDF    => write!(f, "PDF"),
             FileType::DOCX   => write!(f, "DOCX"),
+            FileType::XLSX   => write!(f, "XLSX"),
+            FileType::PPTX   => write!(f, "PPTX"),
             FileType::DOC    => write!(f, "DOC"),
             FileType::ZIP    => write!(f, "ZIP"),
             FileType::RAR    => write!(f, "RAR"),

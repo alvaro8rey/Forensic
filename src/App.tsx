@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/tauri";
-import { save } from "@tauri-apps/api/dialog";
+import { save, open as openDialog } from "@tauri-apps/api/dialog";
+import { writeTextFile } from "@tauri-apps/api/fs";
 import {
   Search,
   ShieldOff,
@@ -13,6 +14,9 @@ import {
   Database,
   Activity,
   Globe,
+  FolderOpen,
+  FileDown,
+  PackageOpen,
 } from "lucide-react";
 
 import { DiskSelector } from "./components/DiskSelector";
@@ -23,6 +27,7 @@ import { useTauriEvents } from "./hooks/useTauriEvents";
 import { SUPPORTED_LANGUAGES, LangCode } from "./i18n";
 import {
   AppView,
+  BatchRecoverResult,
   DiskInfo,
   RecoveredFile,
   RecoverResult,
@@ -46,6 +51,7 @@ export default function App() {
   const [scanState, setScanState] = useState<ScanState>("idle");
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [recoveredFiles, setRecoveredFiles] = useState<RecoveredFile[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [terminalLogs, setTerminalLogs] = useState<ReturnType<typeof buildLogEntry>[]>([]);
   const prevFilesRef = useRef(0);
 
@@ -127,6 +133,7 @@ export default function App() {
     if (!selectedDisk || scanState === "scanning") return;
     setScanState("scanning");
     setRecoveredFiles([]);
+    setSelectedIds(new Set());
     setTerminalLogs([]);
     prevFilesRef.current = 0;
     await invoke("start_scan", { devicePath: selectedDisk });
@@ -194,6 +201,64 @@ export default function App() {
       setPreviewData({ mime, b64, type: String(file.file_type) });
     } catch (e) {
       console.error("Preview failed:", e);
+    }
+  }
+
+  async function recoverBatch() {
+    if (selectedIds.size === 0) return;
+    const folder = await openDialog({ directory: true, title: t("recovery.batchFolder") });
+    if (!folder || typeof folder !== "string") return;
+    try {
+      const results = await invoke<BatchRecoverResult[]>("recover_batch", {
+        fileIds: Array.from(selectedIds),
+        destinationFolder: folder,
+      });
+      const ok = results.filter((r) => r.success).length;
+      const fail = results.length - ok;
+      setTerminalLogs((l) => [
+        ...l,
+        {
+          timestamp: new Date().toTimeString().slice(0, 8),
+          offset: "—",
+          message: `Batch recovery: ${ok} OK, ${fail} failed → ${folder}`,
+          type: "found" as const,
+        },
+      ]);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function exportCsv() {
+    if (recoveredFiles.length === 0) return;
+    const dest = await save({ defaultPath: "scan_results.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
+    if (!dest) return;
+    const header = "id,file_type,original_name,size_bytes,offset_start,recovery_probability,is_fragmented,sector_overwritten\n";
+    const rows = recoveredFiles.map((f) =>
+      `${f.id},${f.file_type},${f.original_name ?? ""},${f.size_bytes},${f.offset_start},${f.recovery_probability},${f.is_fragmented},${f.sector_overwritten}`
+    ).join("\n");
+    await writeTextFile(dest, header + rows);
+    setTerminalLogs((l) => [...l, { timestamp: new Date().toTimeString().slice(0, 8), offset: "—", message: `CSV exported → ${dest}`, type: "found" as const }]);
+  }
+
+  async function exportJson() {
+    if (recoveredFiles.length === 0) return;
+    const dest = await save({ defaultPath: "scan_results.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (!dest) return;
+    await writeTextFile(dest, JSON.stringify(recoveredFiles, null, 2));
+    setTerminalLogs((l) => [...l, { timestamp: new Date().toTimeString().slice(0, 8), offset: "—", message: `JSON exported → ${dest}`, type: "found" as const }]);
+  }
+
+  async function exportZip() {
+    const ids = selectedIds.size > 0 ? Array.from(selectedIds) : recoveredFiles.map((f) => f.id);
+    if (ids.length === 0) return;
+    const dest = await save({ defaultPath: "recovered_files.zip", filters: [{ name: "ZIP Archive", extensions: ["zip"] }] });
+    if (!dest) return;
+    try {
+      const count = await invoke<number>("export_recovered_zip", { fileIds: ids, zipPath: dest });
+      setTerminalLogs((l) => [...l, { timestamp: new Date().toTimeString().slice(0, 8), offset: "—", message: `ZIP export: ${count} files → ${dest}`, type: "found" as const }]);
+    } catch (e) {
+      console.error(e);
     }
   }
 
@@ -595,12 +660,54 @@ export default function App() {
                 isScanning={scanState === "scanning"}
               />
 
+              {/* Batch toolbar — visible when scan has results */}
+              {recoveredFiles.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={recoverBatch}
+                    disabled={selectedIds.size === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#00d4ff]/30 text-[#00d4ff]/80 hover:text-[#00d4ff] hover:bg-[#00d4ff]/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={t("recovery.batchRecover")}
+                  >
+                    <FolderOpen size={13} />
+                    {t("recovery.batchRecover")} {selectedIds.size > 0 && `(${selectedIds.size})`}
+                  </button>
+                  <button
+                    onClick={exportZip}
+                    disabled={recoveredFiles.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-[#00d4ff] hover:border-[#00d4ff]/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={t("recovery.exportZip")}
+                  >
+                    <PackageOpen size={13} />
+                    {t("recovery.exportZip")} {selectedIds.size > 0 ? `(${selectedIds.size})` : `(${recoveredFiles.length})`}
+                  </button>
+                  <button
+                    onClick={exportCsv}
+                    disabled={recoveredFiles.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <FileDown size={13} />
+                    CSV
+                  </button>
+                  <button
+                    onClick={exportJson}
+                    disabled={recoveredFiles.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <FileDown size={13} />
+                    JSON
+                  </button>
+                </div>
+              )}
+
               {/* Results table */}
               <RecoveryTable
                 files={recoveredFiles}
                 onRecover={recoverFile}
                 onPreview={previewFile}
                 loading={scanState === "scanning" && recoveredFiles.length === 0}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
               />
             </div>
           )}

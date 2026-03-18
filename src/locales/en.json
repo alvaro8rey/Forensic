@@ -99,7 +99,10 @@
     "intact": "Sector intact",
     "preview": "Preview",
     "recoverFile": "Recover file",
-    "recoveredMsg": "Recovered {{fileType}} ({{kb}} KB) → {{path}}"
+    "recoveredMsg": "Recovered {{fileType}} ({{kb}} KB) → {{path}}",
+    "batchRecover": "Recover selected",
+    "batchFolder": "Choose destination folder",
+    "exportZip": "Export ZIP"
   },
   "preview": {
     "title": "{{type}} — preview (up to 5 MB)",

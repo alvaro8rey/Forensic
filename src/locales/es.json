@@ -99,7 +99,10 @@
     "intact": "Sector intacto",
     "preview": "Vista previa",
     "recoverFile": "Recuperar archivo",
-    "recoveredMsg": "Recuperado {{fileType}} ({{kb}} KB) → {{path}}"
+    "recoveredMsg": "Recuperado {{fileType}} ({{kb}} KB) → {{path}}",
+    "batchRecover": "Recuperar seleccionados",
+    "batchFolder": "Elegir carpeta de destino",
+    "exportZip": "Exportar ZIP"
   },
   "preview": {
     "title": "{{type}} — vista previa (hasta 5 MB)",
