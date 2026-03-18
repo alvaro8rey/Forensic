@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/tauri";
 import { save, open as openDialog } from "@tauri-apps/api/dialog";
-import { writeTextFile } from "@tauri-apps/api/fs";
+import { writeTextFile, readTextFile } from "@tauri-apps/api/fs";
 import {
   Search,
   ShieldOff,
@@ -17,6 +17,7 @@ import {
   FolderOpen,
   FileDown,
   PackageOpen,
+  Upload,
 } from "lucide-react";
 
 import { DiskSelector } from "./components/DiskSelector";
@@ -282,8 +283,31 @@ export default function App() {
     if (recoveredFiles.length === 0) return;
     const dest = await save({ defaultPath: "scan_results.json", filters: [{ name: "JSON", extensions: ["json"] }] });
     if (!dest) return;
-    await writeTextFile(dest, JSON.stringify(recoveredFiles, null, 2));
-    setTerminalLogs((l) => [...l, { timestamp: new Date().toTimeString().slice(0, 8), offset: "—", message: `JSON exported → ${dest}`, type: "found" as const }]);
+    const payload = { device_path: selectedDisk ?? "", scan_date: new Date().toISOString(), files: recoveredFiles };
+    await writeTextFile(dest, JSON.stringify(payload, null, 2));
+    addLog(`JSON exported → ${dest}`, "found");
+  }
+
+  async function importJson() {
+    const src = await openDialog({
+      filters: [{ name: "Aeon Scan JSON", extensions: ["json"] }],
+      title: "Load scan results",
+    });
+    if (!src || typeof src !== "string") return;
+    try {
+      const raw = await readTextFile(src);
+      const parsed = JSON.parse(raw);
+      // Support both new {device_path, files} envelope and legacy plain array
+      const files: RecoveredFile[] = Array.isArray(parsed) ? parsed : (parsed.files ?? []);
+      const devicePath: string = parsed.device_path ?? selectedDisk ?? "";
+      const count = await invoke<number>("import_scan_results", { devicePath, files });
+      setRecoveredFiles(files);
+      setScanState("complete");
+      addLog(`✓ Loaded ${count} file(s) from ${src}`, "found");
+    } catch (e) {
+      const msg = typeof e === "string" ? e : (e as Error)?.message ?? String(e);
+      addLog(`✗ Import failed: ${msg}`, "error");
+    }
   }
 
   async function exportZip() {
@@ -765,7 +789,19 @@ export default function App() {
                 isScanning={scanState === "scanning"}
               />
 
-              {/* Batch toolbar — visible when scan has results */}
+              {/* Batch toolbar */}
+              <div className="flex items-center gap-2 flex-wrap">
+                  {/* Load JSON — always visible so you can restore a session without scanning */}
+                  <button
+                    onClick={importJson}
+                    disabled={scanState === "scanning"}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-yellow-800/40 text-yellow-600 hover:text-yellow-400 hover:border-yellow-600/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Load a previously exported scan_results.json — skips re-scanning"
+                  >
+                    <Upload size={13} />
+                    Load JSON
+                  </button>
+              </div>
               {recoveredFiles.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <button

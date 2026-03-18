@@ -716,6 +716,21 @@ async fn cancel_shred(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Restore a previous scan session from a saved JSON export.
+/// Populates scan_results and scan_device so recovery/preview work immediately.
+#[tauri::command]
+async fn import_scan_results(
+    device_path: String,
+    files: Vec<RecoveredFile>,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    info!("Command: import_scan_results — {} files, device='{}'", files.len(), device_path);
+    let count = files.len();
+    *state.scan_results.lock().unwrap() = files;
+    *state.scan_device.lock().unwrap() = device_path;
+    Ok(count)
+}
+
 /// Measure NVMe sequential read speed
 #[tauri::command]
 async fn measure_nvme_speed(device_path: String) -> Result<f64, String> {
@@ -751,6 +766,7 @@ fn main() {
             preview_file,
             scan_mft,
             get_mft_results,
+            import_scan_results,
             start_shred,
             cancel_shred,
             measure_nvme_speed,
