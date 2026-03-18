@@ -70,6 +70,10 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [terminalLogs, setTerminalLogs] = useState<ReturnType<typeof buildLogEntry>[]>([]);
   const prevFilesRef = useRef(0);
+  // Guards against scan-complete / scan-error events arriving after the user
+  // already cancelled — those stale updates cause inconsistent state and a
+  // black screen because there is no React Error Boundary to catch the crash.
+  const scanCancelledRef = useRef(false);
 
   // Scan profile
   type ScanProfile = "fast" | "full" | "custom";
@@ -120,21 +124,26 @@ export default function App() {
     }, [t]),
 
     onScanComplete: useCallback((files: RecoveredFile[]) => {
-      setRecoveredFiles(files);
+      // Ignore stale events that arrive after the user cancelled the scan
+      if (scanCancelledRef.current) return;
+      const safeFiles = Array.isArray(files) ? files : [];
+      setRecoveredFiles(safeFiles);
       setScanState("complete");
       setTerminalLogs((l) => [
         ...l,
         {
           timestamp: new Date().toTimeString().slice(0, 8),
           offset: "—",
-          message: t("hunter.scanComplete", { count: files.length }),
+          message: t("hunter.scanComplete", { count: safeFiles.length }),
           type: "found" as const,
         },
       ]);
     }, [t]),
 
     onScanError: useCallback((err: string) => {
-      setScanState("error");
+      // Ignore stale error events after user-initiated cancel
+      if (scanCancelledRef.current) return;
+      setScanState("idle");   // treat as idle, not a hard error state
       setTerminalLogs((l) => [
         ...l,
         {
@@ -176,6 +185,7 @@ export default function App() {
 
   async function startScan() {
     if (!selectedDisk || scanState === "scanning") return;
+    scanCancelledRef.current = false;
     setScanState("scanning");
     setRecoveredFiles([]);
     setSelectedIds(new Set());
@@ -189,8 +199,11 @@ export default function App() {
   }
 
   async function cancelScan() {
-    await invoke("cancel_scan");
+    // Mark as cancelled BEFORE invoking so any in-flight events are ignored
+    scanCancelledRef.current = true;
+    try { await invoke("cancel_scan"); } catch { /* ignore */ }
     setScanState("idle");
+    setScanProgress(null);
   }
 
   function getFileExt(fileType: string): string {
@@ -390,6 +403,28 @@ export default function App() {
     i18n.changeLanguage(code);
     setLangMenuOpen(false);
   }
+
+  // ── Pre-render computed values (keep JSX and logic out of the template) ──
+  const TYPE_TO_GROUP: Record<string, string> = {
+    JPEG: "images", PNG: "images", GIF: "images", TIFF: "images", BMP: "images",
+    PDF: "documents", DOCX: "documents", DOC: "documents", XLSX: "documents", PPTX: "documents", TXT: "documents",
+    MP4: "videos", AVI: "videos", MKV: "videos",
+    MP3: "audio", WAV: "audio", FLAC: "audio",
+    ZIP: "archives", RAR: "archives", SevenZ: "archives",
+  };
+  const FILE_GROUP_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+    images:    { label: "Images",    icon: <Image    size={11} />, color: "text-pink-400" },
+    documents: { label: "Documents", icon: <BookOpen size={11} />, color: "text-orange-400" },
+    videos:    { label: "Videos",    icon: <Video    size={11} />, color: "text-purple-400" },
+    audio:     { label: "Audio",     icon: <Music    size={11} />, color: "text-green-400" },
+    archives:  { label: "Archives",  icon: <Archive  size={11} />, color: "text-yellow-400" },
+    other:     { label: "Other",     icon: <File     size={11} />, color: "text-gray-500" },
+  };
+  const fileCounts: Record<string, number> = {};
+  recoveredFiles.forEach((f) => {
+    const g = TYPE_TO_GROUP[f.file_type] ?? "other";
+    fileCounts[g] = (fileCounts[g] ?? 0) + 1;
+  });
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -880,48 +915,26 @@ export default function App() {
               />
 
               {/* ── Scan summary bar (shown after scan completes) ── */}
-              {scanState === "complete" && recoveredFiles.length > 0 && (() => {
-                const groups: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-                  images:    { label: "Images",    icon: <Image   size={11} />, color: "text-pink-400" },
-                  documents: { label: "Documents", icon: <BookOpen size={11} />, color: "text-orange-400" },
-                  videos:    { label: "Videos",    icon: <Video   size={11} />, color: "text-purple-400" },
-                  audio:     { label: "Audio",     icon: <Music   size={11} />, color: "text-green-400" },
-                  archives:  { label: "Archives",  icon: <Archive size={11} />, color: "text-yellow-400" },
-                  other:     { label: "Other",     icon: <File    size={11} />, color: "text-gray-500" },
-                };
-                const typeToGroup: Record<string, string> = {
-                  JPEG: "images", PNG: "images", GIF: "images", TIFF: "images", BMP: "images",
-                  PDF: "documents", DOCX: "documents", DOC: "documents", XLSX: "documents", PPTX: "documents", TXT: "documents",
-                  MP4: "videos", AVI: "videos", MKV: "videos",
-                  MP3: "audio", WAV: "audio", FLAC: "audio",
-                  ZIP: "archives", RAR: "archives", SevenZ: "archives",
-                };
-                const counts: Record<string, number> = {};
-                recoveredFiles.forEach((f) => {
-                  const g = typeToGroup[f.file_type] ?? "other";
-                  counts[g] = (counts[g] ?? 0) + 1;
-                });
-                return (
-                  <div className="flex items-center gap-3 px-3 py-2 bg-[#08080f] border border-[#00d4ff]/20 rounded-lg flex-wrap">
-                    <div className="flex items-center gap-1.5 text-[#00d4ff]">
-                      <CheckCircle2 size={13} />
-                      <span className="text-xs font-semibold">{recoveredFiles.length} files found</span>
-                    </div>
-                    <div className="w-px h-4 bg-[#1a1a2e]" />
-                    {Object.entries(groups).map(([key, { label, icon, color }]) => {
-                      const n = counts[key];
-                      if (!n) return null;
-                      return (
-                        <div key={key} className={`flex items-center gap-1 text-[11px] ${color}`}>
-                          {icon}
-                          <span className="font-mono font-semibold">{n}</span>
-                          <span className="text-[10px] opacity-70">{label}</span>
-                        </div>
-                      );
-                    })}
+              {scanState === "complete" && recoveredFiles.length > 0 && (
+                <div className="flex items-center gap-3 px-3 py-2 bg-[#08080f] border border-[#00d4ff]/20 rounded-lg flex-wrap">
+                  <div className="flex items-center gap-1.5 text-[#00d4ff]">
+                    <CheckCircle2 size={13} />
+                    <span className="text-xs font-semibold">{recoveredFiles.length} files found</span>
                   </div>
-                );
-              })()}
+                  <div className="w-px h-4 bg-[#1a1a2e]" />
+                  {Object.entries(FILE_GROUP_META).map(([key, { label, icon, color }]) => {
+                    const n = fileCounts[key];
+                    if (!n) return null;
+                    return (
+                      <div key={key} className={`flex items-center gap-1 text-[11px] ${color}`}>
+                        {icon}
+                        <span className="font-mono font-semibold">{n}</span>
+                        <span className="text-[10px] opacity-70">{label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Batch toolbar */}
               <div className="flex items-center gap-2 flex-wrap">
