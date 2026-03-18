@@ -18,6 +18,14 @@ import {
   FileDown,
   PackageOpen,
   Upload,
+  FolderTree,
+  CheckCircle2,
+  Image,
+  BookOpen,
+  Video,
+  Music,
+  Archive,
+  File,
 } from "lucide-react";
 
 import { DiskSelector } from "./components/DiskSelector";
@@ -37,6 +45,13 @@ import {
   ShredProgress,
   ShredState,
 } from "./types";
+
+interface OrganizedRecoverySummary {
+  total: number;
+  ok: number;
+  failed: number;
+  by_folder: Record<string, number>;
+}
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -199,8 +214,10 @@ export default function App() {
 
   async function recoverFile(file: RecoveredFile) {
     const ext = getFileExt(file.file_type);
+    // Prefer the original filename if the scanner recovered it from the directory
+    const defaultName = file.original_name ?? `recovered_${file.file_type.toLowerCase()}_${file.id}.${ext}`;
     const dest = await save({
-      defaultPath: `recovered_${file.file_type.toLowerCase()}_${file.id}.${ext}`,
+      defaultPath: defaultName,
       filters: [
         { name: file.file_type, extensions: [ext] },
         { name: "All files", extensions: ["*"] },
@@ -264,6 +281,31 @@ export default function App() {
       ]);
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async function recoverAllOrganized() {
+    const ids = selectedIds.size > 0 ? Array.from(selectedIds) : [];
+    const folder = await openDialog({
+      directory: true,
+      title: "Choose destination — files will be sorted into Images/, Documents/, Videos/…",
+    });
+    if (!folder || typeof folder !== "string") return;
+    try {
+      const summary = await invoke<OrganizedRecoverySummary>("recover_all_organized", {
+        fileIds: ids,
+        destinationFolder: folder,
+      });
+      const breakdown = Object.entries(summary.by_folder)
+        .map(([k, v]) => `${v} ${k}`)
+        .join(" · ");
+      addLog(
+        `✓ Recovered ${summary.ok}/${summary.total} files → ${folder}  [${breakdown}]`,
+        "found"
+      );
+    } catch (e) {
+      const msg = typeof e === "string" ? e : (e as Error)?.message ?? String(e);
+      addLog(`✗ Organized recovery failed: ${msg}`, "error");
     }
   }
 
@@ -625,6 +667,54 @@ export default function App() {
           {/* ── Hunter View ── */}
           {view === "hunter" && (
             <div className="p-6 space-y-4">
+
+              {/* Onboarding steps — shown when idle and no results yet */}
+              {scanState === "idle" && recoveredFiles.length === 0 && (
+                <div className="border border-[#1a1a2e] bg-[#08080f] rounded-xl p-5 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">How to recover deleted files</h3>
+                    <p className="text-[11px] text-gray-600 mt-0.5">Three steps to get your files back.</p>
+                  </div>
+                  <ol className="space-y-3">
+                    {[
+                      {
+                        n: "1",
+                        title: "Select a device",
+                        desc: "Choose the drive that contained your files from the left sidebar. Click the refresh icon if no devices appear.",
+                        color: "text-[#00d4ff]",
+                        done: !!selectedDisk,
+                      },
+                      {
+                        n: "2",
+                        title: "Choose a scan profile",
+                        desc: "Fast scans directory entries only (seconds). Full scan reads every sector — finds more files but takes several minutes.",
+                        color: "text-yellow-400",
+                        done: false,
+                      },
+                      {
+                        n: "3",
+                        title: "Hit Start Scan — then recover",
+                        desc: 'Files appear in real time. Use the type chips to filter, then "Recover All — Organized" to save everything sorted into folders automatically.',
+                        color: "text-green-400",
+                        done: false,
+                      },
+                    ].map(({ n, title, desc, color, done }) => (
+                      <li key={n} className="flex gap-3">
+                        <div className={`shrink-0 w-6 h-6 rounded-full border flex items-center justify-center text-[11px] font-bold ${
+                          done ? "border-[#00d4ff]/50 bg-[#00d4ff]/10 text-[#00d4ff]" : `border-[#1a1a2e] ${color}/60`
+                        }`}>
+                          {done ? "✓" : n}
+                        </div>
+                        <div>
+                          <div className={`text-xs font-medium ${done ? "text-[#00d4ff]" : "text-gray-300"}`}>{title}</div>
+                          <div className="text-[11px] text-gray-600 mt-0.5 leading-relaxed">{desc}</div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-white">
@@ -789,6 +879,50 @@ export default function App() {
                 isScanning={scanState === "scanning"}
               />
 
+              {/* ── Scan summary bar (shown after scan completes) ── */}
+              {scanState === "complete" && recoveredFiles.length > 0 && (() => {
+                const groups: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+                  images:    { label: "Images",    icon: <Image   size={11} />, color: "text-pink-400" },
+                  documents: { label: "Documents", icon: <BookOpen size={11} />, color: "text-orange-400" },
+                  videos:    { label: "Videos",    icon: <Video   size={11} />, color: "text-purple-400" },
+                  audio:     { label: "Audio",     icon: <Music   size={11} />, color: "text-green-400" },
+                  archives:  { label: "Archives",  icon: <Archive size={11} />, color: "text-yellow-400" },
+                  other:     { label: "Other",     icon: <File    size={11} />, color: "text-gray-500" },
+                };
+                const typeToGroup: Record<string, string> = {
+                  JPEG: "images", PNG: "images", GIF: "images", TIFF: "images", BMP: "images",
+                  PDF: "documents", DOCX: "documents", DOC: "documents", XLSX: "documents", PPTX: "documents", TXT: "documents",
+                  MP4: "videos", AVI: "videos", MKV: "videos",
+                  MP3: "audio", WAV: "audio", FLAC: "audio",
+                  ZIP: "archives", RAR: "archives", SevenZ: "archives",
+                };
+                const counts: Record<string, number> = {};
+                recoveredFiles.forEach((f) => {
+                  const g = typeToGroup[f.file_type] ?? "other";
+                  counts[g] = (counts[g] ?? 0) + 1;
+                });
+                return (
+                  <div className="flex items-center gap-3 px-3 py-2 bg-[#08080f] border border-[#00d4ff]/20 rounded-lg flex-wrap">
+                    <div className="flex items-center gap-1.5 text-[#00d4ff]">
+                      <CheckCircle2 size={13} />
+                      <span className="text-xs font-semibold">{recoveredFiles.length} files found</span>
+                    </div>
+                    <div className="w-px h-4 bg-[#1a1a2e]" />
+                    {Object.entries(groups).map(([key, { label, icon, color }]) => {
+                      const n = counts[key];
+                      if (!n) return null;
+                      return (
+                        <div key={key} className={`flex items-center gap-1 text-[11px] ${color}`}>
+                          {icon}
+                          <span className="font-mono font-semibold">{n}</span>
+                          <span className="text-[10px] opacity-70">{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
               {/* Batch toolbar */}
               <div className="flex items-center gap-2 flex-wrap">
                   {/* Load JSON — always visible so you can restore a session without scanning */}
@@ -804,38 +938,59 @@ export default function App() {
               </div>
               {recoveredFiles.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
+                  {/* PRIMARY: recover all organized into type subfolders */}
+                  <button
+                    onClick={recoverAllOrganized}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#00d4ff]/40 bg-[#00d4ff]/8 text-[#00d4ff] hover:bg-[#00d4ff]/15 transition-all"
+                    title={
+                      selectedIds.size > 0
+                        ? `Recover ${selectedIds.size} selected files, sorted into Images/, Documents/, Videos/… subfolders`
+                        : "Recover ALL files, automatically sorted into Images/, Documents/, Videos/… subfolders"
+                    }
+                  >
+                    <FolderTree size={13} />
+                    {selectedIds.size > 0
+                      ? `Recover Selected (${selectedIds.size}) — Organized`
+                      : `Recover All (${recoveredFiles.length}) — Organized`}
+                  </button>
+
+                  {/* SECONDARY: batch recover selected to flat folder */}
                   <button
                     onClick={recoverBatch}
                     disabled={selectedIds.size === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#00d4ff]/30 text-[#00d4ff]/80 hover:text-[#00d4ff] hover:bg-[#00d4ff]/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={t("recovery.batchRecover")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-[#00d4ff] hover:border-[#00d4ff]/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Save selected files to a single folder (no subfolders)"
                   >
                     <FolderOpen size={13} />
-                    {t("recovery.batchRecover")} {selectedIds.size > 0 && `(${selectedIds.size})`}
+                    Batch Save {selectedIds.size > 0 && `(${selectedIds.size})`}
                   </button>
+
                   <button
                     onClick={exportZip}
                     disabled={recoveredFiles.length === 0}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-[#00d4ff] hover:border-[#00d4ff]/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={t("recovery.exportZip")}
+                    title="Pack all (or selected) files into a single ZIP archive"
                   >
                     <PackageOpen size={13} />
-                    {t("recovery.exportZip")} {selectedIds.size > 0 ? `(${selectedIds.size})` : `(${recoveredFiles.length})`}
+                    ZIP {selectedIds.size > 0 ? `(${selectedIds.size})` : `(${recoveredFiles.length})`}
                   </button>
+
+                  <div className="flex-1" />
+
                   <button
                     onClick={exportCsv}
-                    disabled={recoveredFiles.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-600 hover:text-gray-300 hover:border-gray-600 transition-all"
+                    title="Export file list as CSV spreadsheet"
                   >
-                    <FileDown size={13} />
+                    <FileDown size={12} />
                     CSV
                   </button>
                   <button
                     onClick={exportJson}
-                    disabled={recoveredFiles.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#1a1a2e] text-gray-600 hover:text-gray-300 hover:border-gray-600 transition-all"
+                    title="Export scan results as JSON (can be reloaded later with Load JSON)"
                   >
-                    <FileDown size={13} />
+                    <FileDown size={12} />
                     JSON
                   </button>
                 </div>

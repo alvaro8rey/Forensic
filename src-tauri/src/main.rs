@@ -384,6 +384,111 @@ async fn recover_batch(
     Ok(batch_results)
 }
 
+/// Summary returned by recover_all_organized.
+#[derive(serde::Serialize)]
+struct OrganizedRecoverySummary {
+    total: usize,
+    ok: usize,
+    failed: usize,
+    by_folder: std::collections::HashMap<String, usize>,
+}
+
+/// Recover all (or selected) files and sort them automatically into subfolders
+/// by category: Images/, Documents/, Videos/, Audio/, Archives/, Other/.
+///
+/// This is the recommended way to recover an entire scan in one click —
+/// the tool creates the folder structure for you and puts every file in
+/// the right place.
+#[tauri::command]
+async fn recover_all_organized(
+    file_ids: Vec<u64>,
+    destination_folder: String,
+    state: State<'_, AppState>,
+) -> Result<OrganizedRecoverySummary, String> {
+    info!("Command: recover_all_organized {} files → {}", file_ids.len(), destination_folder);
+
+    let entries: Vec<(u64, u64, u64, String, String)> = {
+        let results = state.scan_results.lock().unwrap();
+        let iter: Box<dyn Iterator<Item = &RecoveredFile>> = if file_ids.is_empty() {
+            Box::new(results.iter())
+        } else {
+            Box::new(results.iter().filter(|f| file_ids.contains(&f.id)))
+        };
+        iter.map(|f| {
+            let ext = format!("{}", f.file_type).to_lowercase();
+            let fname = f.original_name.clone()
+                .unwrap_or_else(|| format!("recovered_{}_{}.{}", f.file_type, f.id, ext));
+            (f.id, f.offset_start, f.size_bytes, format!("{}", f.file_type), fname)
+        }).collect()
+    };
+
+    let device_path = state.scan_device.lock().unwrap().clone();
+    if device_path.is_empty() {
+        return Err("No scan device recorded — run a scan first.".to_string());
+    }
+
+    fn type_folder(file_type: &str) -> &'static str {
+        match file_type {
+            "JPEG" | "PNG" | "GIF" | "TIFF" | "BMP" => "Images",
+            "PDF" | "DOCX" | "DOC" | "XLSX" | "PPTX" | "TXT" => "Documents",
+            "MP4" | "AVI" | "MKV" => "Videos",
+            "MP3" | "WAV" | "FLAC" => "Audio",
+            "ZIP" | "RAR" | "SevenZ" => "Archives",
+            _ => "Other",
+        }
+    }
+
+    // Pre-create all subfolders
+    for sub in &["Images", "Documents", "Videos", "Audio", "Archives", "Other"] {
+        let path = format!("{}/{}", destination_folder.trim_end_matches(['/', '\\']), sub);
+        std::fs::create_dir_all(&path)
+            .map_err(|e| format!("Cannot create folder '{}': {}", path, e))?;
+    }
+
+    let mut src = open_device_ro(&device_path)
+        .map_err(|e| format!("Cannot open device: {}", e))?;
+
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    let mut by_folder: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for (_id, offset_start, size_bytes, type_str, filename) in entries {
+        let folder = type_folder(&type_str);
+        let dest_path = format!(
+            "{}/{}/{}",
+            destination_folder.trim_end_matches(['/', '\\']),
+            folder,
+            filename
+        );
+        let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
+        match read_device_at(&mut src, offset_start, read_size) {
+            Ok(data) => {
+                match std::fs::File::create(&dest_path).and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(&data)
+                }) {
+                    Ok(_) => {
+                        ok += 1;
+                        *by_folder.entry(folder.to_string()).or_insert(0) += 1;
+                    }
+                    Err(e) => {
+                        warn!("Write failed for {}: {}", dest_path, e);
+                        failed += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Read failed at 0x{:X}: {}", offset_start, e);
+                failed += 1;
+            }
+        }
+    }
+
+    let total = ok + failed;
+    info!("recover_all_organized done: {}/{} OK, by_folder={:?}", ok, total, by_folder);
+    Ok(OrganizedRecoverySummary { total, ok, failed, by_folder })
+}
+
 /// Pack selected recovered files into a single ZIP archive.
 #[tauri::command]
 async fn export_recovered_zip(
@@ -817,6 +922,7 @@ fn main() {
             recover_file,
             recover_batch,
             export_recovered_zip,
+            recover_all_organized,
             preview_file,
             scan_mft,
             get_mft_results,
