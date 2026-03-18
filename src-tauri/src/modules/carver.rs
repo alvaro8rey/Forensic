@@ -21,6 +21,9 @@ pub struct FileCarver {
     cancel_flag: Arc<AtomicBool>,
     bytes_scanned: Arc<AtomicU64>,
     found_count: Arc<AtomicU64>,
+    /// When `Some`, only signatures whose `file_type` is in this list are used.
+    /// `None` means scan for all types (full scan).
+    allowed_types: Option<Vec<FileType>>,
 }
 
 impl FileCarver {
@@ -28,6 +31,7 @@ impl FileCarver {
         device_path: String,
         progress_tx: Sender<ScanProgress>,
         cancel_flag: Arc<AtomicBool>,
+        allowed_types: Option<Vec<FileType>>,
     ) -> Self {
         Self {
             device_path,
@@ -35,6 +39,7 @@ impl FileCarver {
             cancel_flag,
             bytes_scanned: Arc::new(AtomicU64::new(0)),
             found_count: Arc::new(AtomicU64::new(0)),
+            allowed_types,
         }
     }
 
@@ -43,7 +48,20 @@ impl FileCarver {
 
         let mut file = self.open_device()?;
         let total_size = self.get_device_size(&mut file)?;
-        let signatures = FileSignature::all_signatures();
+
+        // Filter signatures to only the allowed types (if a profile was set)
+        let signatures: Vec<FileSignature> = FileSignature::all_signatures()
+            .into_iter()
+            .filter(|s| {
+                self.allowed_types.as_ref()
+                    .map(|allowed| allowed.contains(&s.file_type))
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        let scan_txt = self.allowed_types.as_ref()
+            .map(|t| t.contains(&FileType::TXT))
+            .unwrap_or(true);
         let mut recovered: Vec<RecoveredFile> = Vec::new();
         let mut file_id: u64 = 0;
         let start_time = Instant::now();
@@ -137,6 +155,7 @@ impl FileCarver {
                                 sector_overwritten: recovery_prob < 0.3,
                                 preview_available,
                                 thumbnail_base64: None,
+                                original_name: None,
                             });
 
                             file_id += 1;
@@ -150,6 +169,7 @@ impl FileCarver {
                     // far the text continues and record it as a TXT file.
                     // Skip the very first 4 KB of the device (MBR/VBR metadata).
                     let mut ts = OVERLAP_SIZE;
+                    if !scan_txt { ts = OVERLAP_SIZE + n; } // skip TXT detection if not requested
                     while ts + 512 <= OVERLAP_SIZE + n {
                         let sector = &buffer[ts..ts + 512];
                         if is_text_block(sector) {
@@ -184,6 +204,7 @@ impl FileCarver {
                                         sector_overwritten: false,
                                         preview_available: true,
                                         thumbnail_base64: None,
+                                        original_name: None,
                                     });
                                     file_id += 1;
                                     self.found_count.fetch_add(1, Ordering::Relaxed);

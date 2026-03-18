@@ -55,6 +55,35 @@ export default function App() {
   const [terminalLogs, setTerminalLogs] = useState<ReturnType<typeof buildLogEntry>[]>([]);
   const prevFilesRef = useRef(0);
 
+  // Scan profile
+  type ScanProfile = "fast" | "full" | "custom";
+  const [scanProfile, setScanProfile] = useState<ScanProfile>("full");
+  const [customTypes, setCustomTypes] = useState<Set<string>>(new Set());
+
+  const ALL_FILE_TYPES: { type: string; group: string }[] = [
+    { type: "JPEG", group: "img" }, { type: "PNG", group: "img" }, { type: "GIF", group: "img" },
+    { type: "TIFF", group: "img" }, { type: "BMP", group: "img" },
+    { type: "PDF", group: "doc" }, { type: "DOCX", group: "doc" }, { type: "XLSX", group: "doc" },
+    { type: "PPTX", group: "doc" }, { type: "DOC", group: "doc" }, { type: "TXT", group: "doc" },
+    { type: "ZIP", group: "arc" }, { type: "RAR", group: "arc" }, { type: "SevenZ", group: "arc" },
+    { type: "EXE", group: "exe" },
+    { type: "MP4", group: "vid" }, { type: "AVI", group: "vid" }, { type: "MKV", group: "vid" },
+    { type: "MP3", group: "aud" }, { type: "WAV", group: "aud" }, { type: "FLAC", group: "aud" },
+    { type: "SQLite", group: "db" },
+  ];
+  const GROUP_COLORS: Record<string, string> = {
+    img: "text-pink-400", doc: "text-orange-400", arc: "text-yellow-400",
+    exe: "text-red-400", vid: "text-purple-400", aud: "text-green-400", db: "text-blue-400",
+  };
+
+  function toggleCustomType(type: string) {
+    setCustomTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type); else next.add(type);
+      return next;
+    });
+  }
+
   // Shred state
   const [shredState, setShredState] = useState<ShredState>("idle");
   const [shredProgress, setShredProgress] = useState<ShredProgress | null>(null);
@@ -136,7 +165,11 @@ export default function App() {
     setSelectedIds(new Set());
     setTerminalLogs([]);
     prevFilesRef.current = 0;
-    await invoke("start_scan", { devicePath: selectedDisk });
+    await invoke("start_scan", {
+      devicePath: selectedDisk,
+      scanProfile,
+      customTypes: scanProfile === "custom" ? Array.from(customTypes) : [],
+    });
   }
 
   async function cancelScan() {
@@ -582,7 +615,7 @@ export default function App() {
                   {scanState !== "scanning" ? (
                     <button
                       onClick={startScan}
-                      disabled={!selectedDisk}
+                      disabled={!selectedDisk || (scanProfile === "custom" && customTypes.size === 0)}
                       className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-sm font-medium hover:bg-[#00d4ff]/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Play size={14} />
@@ -599,6 +632,74 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              {/* ── Scan profile selector ── */}
+              {scanState !== "scanning" && (
+                <div className="border border-[#1a1a2e] bg-[#08080f] rounded-lg p-3 space-y-3">
+                  <span className="text-[10px] text-gray-600 uppercase tracking-wider">
+                    {t("hunter.profile.label")}
+                  </span>
+                  <div className="flex gap-2">
+                    {(["fast", "full", "custom"] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setScanProfile(p)}
+                        className={`flex-1 flex flex-col items-center py-2 px-3 rounded-lg border text-xs transition-all ${
+                          scanProfile === p
+                            ? "border-[#00d4ff]/50 bg-[#00d4ff]/8 text-[#00d4ff]"
+                            : "border-[#1a1a2e] text-gray-500 hover:text-gray-300 hover:border-gray-600"
+                        }`}
+                      >
+                        <span className="font-semibold">{t(`hunter.profile.${p}`)}</span>
+                        <span className="text-[9px] mt-0.5 opacity-70">{t(`hunter.profile.${p}Desc`)}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom type checkboxes */}
+                  {scanProfile === "custom" && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-600">{t("hunter.profile.selectTypes")}</span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setCustomTypes(new Set(ALL_FILE_TYPES.map((f) => f.type)))}
+                            className="text-[9px] text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors"
+                          >
+                            All
+                          </button>
+                          <button
+                            onClick={() => setCustomTypes(new Set())}
+                            className="text-[9px] text-gray-600 hover:text-gray-400 transition-colors"
+                          >
+                            None
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ALL_FILE_TYPES.map(({ type, group }) => (
+                          <button
+                            key={type}
+                            onClick={() => toggleCustomType(type)}
+                            className={`px-2 py-0.5 rounded border text-[10px] font-mono transition-all ${
+                              customTypes.has(type)
+                                ? `${GROUP_COLORS[group]} border-current bg-current/10`
+                                : "text-gray-700 border-[#1a1a2e] hover:text-gray-500"
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
+                      {customTypes.size === 0 && (
+                        <p className="text-[10px] text-yellow-500/70">
+                          Select at least one file type.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Rich scan progress card */}
               {scanState === "scanning" && scanProgress && (() => {

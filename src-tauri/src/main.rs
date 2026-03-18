@@ -17,7 +17,7 @@ use modules::{
     mft::{DeletedMftEntry, MftParser},
     shredder::Shredder,
     smart::SmartReader,
-    types::{DiskInfo, RecoveredFile, ScanProgress, ScanStatus, ShredAlgorithm, ShredOptions, ShredProgress, ValidationStatus},
+    types::{DiskInfo, FileType, RecoveredFile, ScanProgress, ScanStatus, ShredAlgorithm, ShredOptions, ShredProgress, ValidationStatus},
 };
 
 // ─── Global App State ────────────────────────────────────────────────────────
@@ -53,19 +53,67 @@ async fn list_disks(_state: State<'_, AppState>) -> Result<Vec<DiskInfo>, String
     Ok(disks)
 }
 
+/// Maps a profile string + optional custom type list to a set of allowed FileTypes.
+/// Returns `None` for "full" (scan everything) or `Some(vec)` to restrict.
+fn resolve_allowed_types(profile: &str, custom_types: &[String]) -> Option<Vec<FileType>> {
+    match profile {
+        "fast" => Some(vec![
+            FileType::JPEG, FileType::PNG, FileType::GIF, FileType::TIFF, FileType::BMP,
+            FileType::PDF, FileType::DOCX, FileType::XLSX, FileType::PPTX, FileType::DOC,
+            FileType::TXT,
+        ]),
+        "custom" if !custom_types.is_empty() => Some(
+            custom_types.iter().filter_map(|s| match s.as_str() {
+                "JPEG"   => Some(FileType::JPEG),
+                "PNG"    => Some(FileType::PNG),
+                "GIF"    => Some(FileType::GIF),
+                "TIFF"   => Some(FileType::TIFF),
+                "BMP"    => Some(FileType::BMP),
+                "PDF"    => Some(FileType::PDF),
+                "DOCX"   => Some(FileType::DOCX),
+                "XLSX"   => Some(FileType::XLSX),
+                "PPTX"   => Some(FileType::PPTX),
+                "DOC"    => Some(FileType::DOC),
+                "TXT"    => Some(FileType::TXT),
+                "ZIP"    => Some(FileType::ZIP),
+                "RAR"    => Some(FileType::RAR),
+                "SevenZ" => Some(FileType::SevenZ),
+                "EXE"    => Some(FileType::EXE),
+                "MP4"    => Some(FileType::MP4),
+                "AVI"    => Some(FileType::AVI),
+                "MKV"    => Some(FileType::MKV),
+                "MP3"    => Some(FileType::MP3),
+                "WAV"    => Some(FileType::WAV),
+                "FLAC"   => Some(FileType::FLAC),
+                "SQLite" => Some(FileType::SQLite),
+                _        => None,
+            }).collect()
+        ),
+        _ => None, // "full" — no filter
+    }
+}
+
 /// Start a file-carving scan on a device
 /// Emits `scan-progress` events to the frontend in real-time
 #[tauri::command]
 async fn start_scan(
     device_path: String,
+    scan_profile: String,
+    custom_types: Vec<String>,
     window: Window,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    info!("Command: start_scan on {}", device_path);
+    info!("Command: start_scan on {} [profile={}]", device_path, scan_profile);
 
     // Reset cancel flag and store device path for later recovery
     state.scan_cancel.store(false, Ordering::SeqCst);
     *state.scan_device.lock().unwrap() = device_path.clone();
+
+    let allowed_types = resolve_allowed_types(&scan_profile, &custom_types);
+    info!("Scan profile '{}': {} type(s) active",
+        scan_profile,
+        allowed_types.as_ref().map(|v| v.len()).unwrap_or(0).max(99) // "all" when None
+    );
 
     let (tx, rx) = unbounded::<ScanProgress>();
     let cancel = Arc::clone(&state.scan_cancel);
@@ -81,7 +129,11 @@ async fn start_scan(
         let fat_carver = FatCarver::new(path_clone.clone());
         match fat_carver.scan() {
             Ok(mut fat_files) => {
-                info!("FAT directory carving: {} deleted entries", fat_files.len());
+                // When a profile is active, filter FAT results to the same allowed types
+                if let Some(ref allowed) = allowed_types {
+                    fat_files.retain(|f| allowed.contains(&f.file_type));
+                }
+                info!("FAT directory carving: {} deleted entries (after filter)", fat_files.len());
                 all_results.append(&mut fat_files);
                 // Emit an early progress snapshot so the UI shows FAT results immediately
                 let _ = win_clone.emit("scan-progress", ScanProgress {
@@ -100,7 +152,7 @@ async fn start_scan(
         }
 
         // ── Phase 2: Signature-based carving (slow, emits progress) ──────
-        let carver = FileCarver::new(path_clone, tx, cancel);
+        let carver = FileCarver::new(path_clone, tx, cancel, allowed_types);
         match carver.scan() {
             Ok(sig_files) => {
                 // Merge: FAT entries take priority; skip sig entries whose

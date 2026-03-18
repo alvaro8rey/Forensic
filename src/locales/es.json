@@ -67,7 +67,17 @@
       "elapsed": "Transcurrido"
     },
     "scanComplete": "✓ Escaneo completado. {{count}} archivo(s) recuperado(s).",
-    "scanError": "✗ Error: {{error}}"
+    "scanError": "✗ Error: {{error}}",
+    "profile": {
+      "label": "Perfil de escaneo",
+      "fast": "Rápido",
+      "fastDesc": "Solo imágenes y documentos",
+      "full": "Completo",
+      "fullDesc": "Todos los formatos compatibles",
+      "custom": "Personalizado",
+      "customDesc": "Elige los formatos manualmente",
+      "selectTypes": "Selecciona los tipos de archivo"
+    }
   },
   "terminal": {
     "title": "Monitor de Flujo Hex",

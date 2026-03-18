@@ -67,7 +67,17 @@
       "elapsed": "Elapsed"
     },
     "scanComplete": "✓ Scan complete. {{count}} file(s) recovered.",
-    "scanError": "✗ Error: {{error}}"
+    "scanError": "✗ Error: {{error}}",
+    "profile": {
+      "label": "Scan profile",
+      "fast": "Fast",
+      "fastDesc": "Images & documents only",
+      "full": "Complete",
+      "fullDesc": "All supported formats",
+      "custom": "Custom",
+      "customDesc": "Choose formats manually",
+      "selectTypes": "Select file types to scan"
+    }
   },
   "terminal": {
     "title": "Hex Stream Monitor",
