@@ -136,7 +136,7 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             <button
               onClick={() => { setTargetPath(selectedDiskPath); setConfirmed(false); }}
               className="text-[10px] text-[#00d4ff]/60 hover:text-[#00d4ff] transition-colors font-mono"
-              title={`Fill with the currently selected disk: ${selectedDiskPath}`}
+              title={t("shred.useDiskTitle", { path: selectedDiskPath })}
             >
               {t("shred.useDisk", { path: selectedDiskPath })}
             </button>
@@ -248,8 +248,8 @@ export function ShredPanel({ progress, state, error, selectedDiskPath, onStart, 
             />
           </div>
           <div className="flex justify-between text-[10px] text-gray-600 font-mono">
-            <span>{formatBytes(progress.bytes_written)} written</span>
-            <span>{formatBytes(progress.total_bytes)} total</span>
+            <span>{formatBytes(progress.bytes_written)} {t("shred.written")}</span>
+            <span>{formatBytes(progress.total_bytes)} {t("shred.total")}</span>
           </div>
         </div>
       )}

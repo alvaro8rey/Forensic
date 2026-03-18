@@ -110,7 +110,18 @@ impl Shredder {
         self.run_passes(&passes, "DoD 5220.22-M")?;
 
         if self.options.verify_passes {
-            self.verify_last_pass(PassType::Random)?;
+            let verified = self.verify_last_pass(PassType::Random)?;
+            // Overwrite the completion event with the real verification outcome.
+            // run_passes() sends verification_passed: None — this replaces it.
+            let _ = self.progress_tx.try_send(ShredProgress {
+                current_pass: 3,
+                total_passes: 3,
+                bytes_written: 0,
+                total_bytes: 0,
+                algorithm: "DoD 5220.22-M".to_string(),
+                verification_passed: Some(verified),
+                status: ShredStatus::Completed,
+            });
         }
 
         Ok(())
@@ -190,21 +201,25 @@ impl Shredder {
                 });
             }
 
-            // Flush to physical media (fsync)
-            file.flush()?;
+            // Flush page cache to physical media (equivalent to fsync/FlushFileBuffers).
+            // file.flush() is a no-op on std::fs::File; sync_data() does the real OS call.
+            file.sync_data()?;
             // Explicitly zeroize the write buffer from memory
             write_buf.zeroize();
 
             info!("Pass {}/{} complete.", current_pass, total_passes);
         }
 
+        // Send completion with no verification result yet.
+        // Algorithms that support verification (DoD5220) will send a follow-up
+        // event with the real result after calling verify_last_pass().
         let _ = self.progress_tx.try_send(ShredProgress {
             current_pass: total_passes,
             total_passes,
             bytes_written: 0,
             total_bytes: 0,
             algorithm: algorithm_name.to_string(),
-            verification_passed: Some(true),
+            verification_passed: None,
             status: ShredStatus::Completed,
         });
 
@@ -281,7 +296,7 @@ impl Shredder {
         // CDW10[1:0] = 0x01 = Block Erase (or 0x04 = Crypto Erase)
         let nvme_sanitize_cmd = NvmeSanitizeCommand {
             opcode: 0x84,        // Sanitize
-            cdw10: 0x00000001,   // SANACT = 001b = Exit Failure Mode / 010b = Block Erase
+            cdw10: 0x00000002,   // SANACT[2:0] = 010b = Block Erase (0x1 = Exit Failure Mode — wrong)
             cdw11: 0x00000000,
             cdw12: 0x00000000,
         };
