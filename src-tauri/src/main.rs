@@ -8,7 +8,7 @@ use std::thread;
 use std::io::{Read, Seek, SeekFrom, Write};
 use crossbeam_channel::unbounded;
 use tauri::{State, Window};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use modules::{
