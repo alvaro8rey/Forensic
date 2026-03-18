@@ -84,6 +84,7 @@ impl Shredder {
             ShredAlgorithm::DoD5220 => self.shred_dod5220()?,
             ShredAlgorithm::Gutmann35 => self.shred_gutmann35()?,
             ShredAlgorithm::RandomSingle => self.shred_random_single()?,
+            ShredAlgorithm::Schneier7 => self.shred_schneier7()?,
         }
 
         // Skip deletion/rename steps for raw device paths — they are not files.
@@ -108,7 +109,7 @@ impl Shredder {
                     .open(&self.options.target_path)
                     .context("Cannot open file to truncate")?;
                 f.set_len(0).context("Cannot truncate file to zero")?;
-                f.sync_data()?;
+                f.sync_all()?; // sync_all flushes metadata (file size) to disk; sync_data would not
             }
 
             // ── Step 3: Rename to a random name ──────────────────────────────
@@ -290,6 +291,15 @@ impl Shredder {
         self.run_passes(&passes, "DoD 5220.22-M")?;
 
         if self.options.verify_passes {
+            let _ = self.progress_tx.try_send(ShredProgress {
+                current_pass: 3,
+                total_passes: 3,
+                bytes_written: 0,
+                total_bytes: 0,
+                algorithm: "DoD 5220.22-M".to_string(),
+                verification_passed: None,
+                status: ShredStatus::Verifying,
+            });
             let verified = self.verify_last_pass(PassType::Random)?;
             // Overwrite the completion event with the real verification outcome.
             // run_passes() sends verification_passed: None — this replaces it.
@@ -327,6 +337,50 @@ impl Shredder {
     fn shred_random_single(&self) -> Result<()> {
         info!("Starting single-pass random shred on: {}", self.options.target_path);
         self.run_passes(&[PassType::Random], "Random Single")?;
+        Ok(())
+    }
+
+    /// Schneier 7-pass (Bruce Schneier, "Applied Cryptography"):
+    ///   Pass 1: 0x00
+    ///   Pass 2: 0xFF
+    ///   Passes 3-7: random
+    fn shred_schneier7(&self) -> Result<()> {
+        info!("Starting Schneier 7-pass on: {}", self.options.target_path);
+
+        let passes = vec![
+            PassType::Fixed(0x00),
+            PassType::Fixed(0xFF),
+            PassType::Random,
+            PassType::Random,
+            PassType::Random,
+            PassType::Random,
+            PassType::Random,
+        ];
+
+        self.run_passes(&passes, "Schneier 7-Pass")?;
+
+        if self.options.verify_passes {
+            let _ = self.progress_tx.try_send(ShredProgress {
+                current_pass: 7,
+                total_passes: 7,
+                bytes_written: 0,
+                total_bytes: 0,
+                algorithm: "Schneier 7-Pass".to_string(),
+                verification_passed: None,
+                status: ShredStatus::Verifying,
+            });
+            let verified = self.verify_last_pass(PassType::Random)?;
+            let _ = self.progress_tx.try_send(ShredProgress {
+                current_pass: 7,
+                total_passes: 7,
+                bytes_written: 0,
+                total_bytes: 0,
+                algorithm: "Schneier 7-Pass".to_string(),
+                verification_passed: Some(verified),
+                status: ShredStatus::Completed,
+            });
+        }
+
         Ok(())
     }
 
@@ -448,10 +502,20 @@ impl Shredder {
                     }
                 }
                 PassType::Random => {
-                    let first = sample_buf[0];
-                    let all_same = sample_buf.iter().all(|&b| b == first);
-                    if all_same {
-                        warn!("Possible verification anomaly at offset 0x{:X}: uniform bytes", offset);
+                    // Build a frequency table and check that no single byte
+                    // value dominates (>50% = the pass was not actually random).
+                    let mut freq = [0u32; 256];
+                    for &b in &sample_buf {
+                        freq[b as usize] += 1;
+                    }
+                    let max_freq = freq.iter().copied().max().unwrap_or(0);
+                    if max_freq as usize > sample_buf.len() / 2 {
+                        warn!(
+                            "Verification FAILED at offset 0x{:X}: non-random distribution (max byte freq {})",
+                            offset, max_freq
+                        );
+                        verified = false;
+                        break;
                     }
                 }
             }

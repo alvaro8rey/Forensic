@@ -155,6 +155,8 @@ pub enum ShredAlgorithm {
     NvmeSanitize,
     /// NVMe Format NVM command
     NvmeFormat,
+    /// Schneier 7-pass: 0x00, 0xFF, then 5 random passes
+    Schneier7,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
