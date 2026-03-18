@@ -189,6 +189,13 @@ export default function App() {
     return map[fileType] ?? "bin";
   }
 
+  function addLog(message: string, type: "found" | "error" | "info" = "info") {
+    setTerminalLogs((l) => [
+      ...l,
+      { timestamp: new Date().toTimeString().slice(0, 8), offset: "—", message, type },
+    ]);
+  }
+
   async function recoverFile(file: RecoveredFile) {
     const ext = getFileExt(file.file_type);
     const dest = await save({
@@ -210,17 +217,10 @@ export default function App() {
         kb: result.kb,
         path: result.path,
       });
-      setTerminalLogs((l) => [
-        ...l,
-        {
-          timestamp: new Date().toTimeString().slice(0, 8),
-          offset: "—",
-          message: msg,
-          type: "found" as const,
-        },
-      ]);
+      addLog(msg, "found");
     } catch (e) {
-      console.error(e);
+      const msg = typeof e === "string" ? e : (e as Error)?.message ?? String(e);
+      addLog(`✗ Recovery failed: ${msg}`, "error");
     }
   }
 
@@ -228,12 +228,16 @@ export default function App() {
     try {
       const raw = await invoke<string>("preview_file", { fileId: file.id });
       const colonIdx = raw.indexOf(":");
-      if (colonIdx === -1) return;
+      if (colonIdx === -1) {
+        addLog("✗ Preview failed: unexpected response format", "error");
+        return;
+      }
       const mime = raw.slice(0, colonIdx);
       const b64 = raw.slice(colonIdx + 1);
       setPreviewData({ mime, b64, type: String(file.file_type) });
     } catch (e) {
-      console.error("Preview failed:", e);
+      const msg = typeof e === "string" ? e : (e as Error)?.message ?? String(e);
+      addLog(`✗ Preview failed: ${msg}`, "error");
     }
   }
 

@@ -256,17 +256,20 @@ async fn recover_file(
 
     // Cap read size: never allocate more than 500 MB at once
     let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
+    if read_size == 0 {
+        return Err(format!("File ID {} has zero size — nothing to recover", file_id));
+    }
 
     // Open the source device with shared read access
     let mut src = open_device_ro(&device_path)
         .map_err(|e| format!("Cannot open device '{}': {}", device_path, e))?;
 
     src.seek(SeekFrom::Start(offset_start))
-        .map_err(|e| format!("Seek failed: {}", e))?;
+        .map_err(|e| format!("Seek failed at 0x{:X}: {}", offset_start, e))?;
 
-    let mut data = vec![0u8; read_size];
-    src.read_exact(&mut data)
-        .map_err(|e| format!("Read failed at offset 0x{:X}: {}", offset_start, e))?;
+    // Robust read: never fail just because size_bytes was an estimate
+    let data = read_bytes_robust(&mut src, read_size)
+        .map_err(|e| format!("Read failed at 0x{:X}: {}", offset_start, e))?;
 
     // Write recovered bytes to the user-chosen destination
     let mut dst = std::fs::File::create(&destination_path)
@@ -274,7 +277,7 @@ async fn recover_file(
     dst.write_all(&data)
         .map_err(|e| format!("Write failed: {}", e))?;
 
-    let kb = read_size / 1024;
+    let kb = data.len() / 1024;
     let validation = validate_bytes(&data, &type_str);
     info!("Recovered {} ({} KB) from 0x{:X} → {} [valid={}]",
         type_str, kb, offset_start, destination_path, validation.is_valid);
@@ -328,8 +331,7 @@ async fn recover_batch(
         let result = (|| -> Result<BatchRecoverResult, String> {
             src.seek(SeekFrom::Start(offset_start))
                 .map_err(|e| format!("Seek failed: {}", e))?;
-            let mut data = vec![0u8; read_size];
-            src.read_exact(&mut data)
+            let data = read_bytes_robust(&mut src, read_size)
                 .map_err(|e| format!("Read failed: {}", e))?;
             let validation = validate_bytes(&data, &type_str);
             let mut dst = std::fs::File::create(&dest_path)
@@ -395,8 +397,10 @@ async fn export_recovered_zip(
     for (_id, offset_start, size_bytes, filename) in entries {
         let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
         if src.seek(SeekFrom::Start(offset_start)).is_err() { continue; }
-        let mut data = vec![0u8; read_size];
-        if src.read_exact(&mut data).is_err() { continue; }
+        let data = match read_bytes_robust(&mut src, read_size) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
 
         // Ensure unique filenames inside the ZIP
         let entry_name = if count == 0 { filename.clone() }
@@ -437,13 +441,16 @@ async fn preview_file(
     }
 
     let read_size = size_bytes.min(5 * 1024 * 1024) as usize; // cap at 5 MB
+    if read_size == 0 {
+        return Err("File has zero size".to_string());
+    }
     let mut src = open_device_ro(&device_path)
         .map_err(|e| format!("Cannot open device: {}", e))?;
     src.seek(SeekFrom::Start(offset_start))
         .map_err(|e| format!("Seek failed: {}", e))?;
 
-    let mut data = vec![0u8; read_size];
-    src.read_exact(&mut data)
+    // Robust read — don't fail on partial data
+    let data = read_bytes_robust(&mut src, read_size)
         .map_err(|e| format!("Read failed: {}", e))?;
 
     // Return "mime:base64data" so the frontend knows the content type
@@ -461,7 +468,39 @@ async fn preview_file(
     Ok(format!("{}:{}", mime, b64))
 }
 
-// ── File validation ───────────────────────────────────────────────────────────
+// ── Robust read helper ────────────────────────────────────────────────────────
+
+/// Read up to `max_bytes` from `src` at the current position using 64 KB chunks.
+/// Unlike `read_exact`, this never fails when fewer bytes are available — it just
+/// returns whatever the device gave us.  Returns an error only when zero bytes
+/// could be read at all.
+fn read_bytes_robust(src: &mut std::fs::File, max_bytes: usize) -> Result<Vec<u8>, String> {
+    let mut data: Vec<u8> = Vec::with_capacity(max_bytes.min(64 * 1024 * 1024));
+    let mut buf = vec![0u8; 65536]; // 64 KB chunks
+    let mut remaining = max_bytes;
+    while remaining > 0 {
+        let to_read = buf.len().min(remaining);
+        match src.read(&mut buf[..to_read]) {
+            Ok(0) => break,
+            Ok(n) => {
+                data.extend_from_slice(&buf[..n]);
+                remaining -= n;
+            }
+            Err(e) => {
+                if data.is_empty() {
+                    return Err(format!("Read failed: {}", e));
+                }
+                break; // partial read — return what we have
+            }
+        }
+    }
+    if data.is_empty() {
+        return Err("No data at this offset (device may have changed since scan)".to_string());
+    }
+    Ok(data)
+}
+
+
 
 fn validate_bytes(data: &[u8], file_type: &str) -> ValidationStatus {
     if data.is_empty() {
