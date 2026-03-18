@@ -133,6 +133,34 @@ async fn start_scan(
                 if let Some(ref allowed) = allowed_types {
                     fat_files.retain(|f| allowed.contains(&f.file_type));
                 }
+
+                // Deduplicate FAT entries by physical location.
+                // Renaming a file leaves one deleted directory entry per rename, all
+                // pointing to the same clusters (same offset_start).  Keep the single
+                // best entry per location (prefer higher probability; break ties by
+                // preferring entries that have an original_name).
+                {
+                    use std::collections::HashMap;
+                    let mut best: HashMap<u64, usize> = HashMap::new();
+                    for i in 0..fat_files.len() {
+                        let key = fat_files[i].offset_start;
+                        if key == 0 { continue; }
+                        match best.get(&key).copied() {
+                            None => { best.insert(key, i); }
+                            Some(prev) => {
+                                let better =
+                                    fat_files[i].recovery_probability > fat_files[prev].recovery_probability
+                                    || (fat_files[i].recovery_probability == fat_files[prev].recovery_probability
+                                        && fat_files[i].original_name.is_some()
+                                        && fat_files[prev].original_name.is_none());
+                                if better { best.insert(key, i); }
+                            }
+                        }
+                    }
+                    let keep: std::collections::HashSet<usize> = best.values().copied().collect();
+                    let mut idx = 0usize;
+                    fat_files.retain(|_| { let k = keep.contains(&idx); idx += 1; k });
+                }
                 info!("FAT directory carving: {} deleted entries (after filter)", fat_files.len());
                 all_results.append(&mut fat_files);
                 // Emit an early progress snapshot so the UI shows FAT results immediately
@@ -156,14 +184,17 @@ async fn start_scan(
         match carver.scan() {
             Ok(sig_files) => {
                 // Merge: FAT entries take priority; skip sig entries whose
-                // (type, sector-aligned offset) already appear in FAT results.
-                let fat_keys: std::collections::HashSet<String> = all_results
+                // sector-aligned offset already appears in FAT results.
+                // We intentionally omit file_type from the key: the same physical
+                // offset can only ever be one file, regardless of which scanner
+                // detected it first.
+                let fat_keys: std::collections::HashSet<u64> = all_results
                     .iter()
-                    .map(|f| format!("{:?}:{}", f.file_type, f.offset_start / 512 * 512))
+                    .map(|f| f.offset_start / 512 * 512)
                     .collect();
 
                 for f in sig_files {
-                    let key = format!("{:?}:{}", f.file_type, f.offset_start / 512 * 512);
+                    let key = f.offset_start / 512 * 512;
                     if !fat_keys.contains(&key) {
                         all_results.push(f);
                     }
@@ -628,8 +659,31 @@ async fn scan_mft(
     thread::spawn(move || {
         let parser = MftParser::new(device_path);
         match parser.parse_deleted_entries() {
-            Ok(entries) => {
-                info!("MFT scan found {} deleted entries", entries.len());
+            Ok(mut entries) => {
+                // Deduplicate MFT entries by data_run_offset: same LCN = same file
+                // content; multiple records arise from rename operations leaving
+                // deleted entries behind.  Keep the entry with the latest modified
+                // timestamp (most recent name/state).
+                {
+                    use std::collections::HashMap;
+                    let mut best: HashMap<u64, usize> = HashMap::new();
+                    for i in 0..entries.len() {
+                        let key = entries[i].data_run_offset;
+                        if key == 0 { continue; }
+                        match best.get(&key).copied() {
+                            None => { best.insert(key, i); }
+                            Some(prev) => {
+                                if entries[i].modified_time > entries[prev].modified_time {
+                                    best.insert(key, i);
+                                }
+                            }
+                        }
+                    }
+                    let keep: std::collections::HashSet<usize> = best.values().copied().collect();
+                    let mut idx = 0usize;
+                    entries.retain(|_| { let k = keep.contains(&idx); idx += 1; k });
+                }
+                info!("MFT scan found {} deleted entries (after dedup)", entries.len());
                 *mft_store.lock().unwrap() = entries.clone();
                 let _ = win.emit("mft-complete", entries);
             }
