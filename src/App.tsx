@@ -659,20 +659,15 @@ export default function App() {
             <div className="p-6 space-y-6">
               <div>
                 <h2 className="text-lg font-semibold text-white">{t("dashboard.title")}</h2>
-                <p className="text-xs text-gray-600 mt-1 leading-relaxed max-w-2xl">
-                  <strong className="text-gray-500">{t("app.title")}</strong>{" "}
-                  {t("dashboard.title") === "System Overview"
-                    ? "is a forensic recovery and secure data-destruction tool. Use "
-                    : "es una herramienta de recuperación forense y destrucción segura de datos. Usa "}
-                  <span className="text-[#00d4ff]/70">{t("nav.hunter")}</span>
-                  {t("dashboard.title") === "System Overview"
-                    ? " to scan a storage device for deleted or hidden files, and "
-                    : " para escanear un dispositivo en busca de archivos eliminados u ocultos, y "}
-                  <span className="text-red-400/70">{t("nav.oblivion")}</span>
-                  {t("dashboard.title") === "System Overview"
-                    ? " to permanently destroy sensitive data beyond recovery. Start by selecting a storage device from the left sidebar."
-                    : " para destruir permanentemente datos confidenciales. Empieza seleccionando un dispositivo en la barra lateral."}
-                </p>
+                <p
+                  className="text-xs text-gray-600 mt-1 leading-relaxed max-w-2xl"
+                  dangerouslySetInnerHTML={{
+                    __html: t("dashboard.description")
+                      .replace(/<strong>(.*?)<\/strong>/g, '<strong class="text-gray-500">$1</strong>')
+                      .replace(/<hunter>(.*?)<\/hunter>/g, '<span class="text-[#00d4ff]/70">$1</span>')
+                      .replace(/<oblivion>(.*?)<\/oblivion>/g, '<span class="text-red-400/70">$1</span>'),
+                  }}
+                />
               </div>
               <div className="grid grid-cols-3 gap-4">
                 {[
@@ -1079,7 +1074,7 @@ export default function App() {
               </button>
             </div>
             <div className="p-4 overflow-auto max-h-[calc(85vh-42px)]">
-              {previewData.mime.startsWith("image/") ? (
+              {previewData.mime.startsWith("image/") && previewData.mime !== "image/tiff" ? (
                 <img
                   src={`data:${previewData.mime};base64,${previewData.b64}`}
                   alt="Preview"
@@ -1087,7 +1082,16 @@ export default function App() {
                 />
               ) : (
                 <pre className="text-xs text-gray-400 font-mono whitespace-pre-wrap break-all">
-                  {atob(previewData.b64).slice(0, 4096)}
+                  {(() => {
+                    try {
+                      const raw = atob(previewData.b64);
+                      // Replace non-printable chars (except tab/newline) with a dot so the
+                      // terminal doesn't get garbled by binary content.
+                      return raw.slice(0, 4096).replace(/[^\x09\x0a\x0d\x20-\x7e]/g, ".");
+                    } catch {
+                      return "(binary data — cannot display as text)";
+                    }
+                  })()}
                 </pre>
               )}
             </div>

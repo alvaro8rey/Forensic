@@ -27,6 +27,7 @@ const ALGO_META: Record<
   { icon: string; passes: number; safe: boolean; recommendationColor: string }
 > = {
   DoD5220:     { icon: "🛡️", passes: 3,  safe: true,  recommendationColor: "text-green-400" },
+  Schneier7:   { icon: "🔒", passes: 7,  safe: true,  recommendationColor: "text-blue-400" },
   Gutmann35:   { icon: "☢️", passes: 35, safe: true,  recommendationColor: "text-yellow-400" },
   RandomSingle:{ icon: "⚡", passes: 1,  safe: false, recommendationColor: "text-[#00d4ff]" },
   NvmeSanitize:{ icon: "💾", passes: 1,  safe: true,  recommendationColor: "text-purple-400" },

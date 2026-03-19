@@ -180,6 +180,12 @@
         "recommendation": "🔧 Alternativa cuando Sanitize no funciona",
         "forWhom": "Úsalo si la Sanitización NVMe da error en tu disco. También requiere Administrador y una ruta de dispositivo como \\\\.\\PhysicalDrive0.",
         "desc": "Envía una orden de Formateo directamente al hardware de la unidad NVMe, borrando y reiniciando todo el espacio de almacenamiento. En algunos discos es algo más rápido que Sanitize. Úsalo como alternativa si la opción de Sanitize devuelve un error."
+      },
+      "Schneier7": {
+        "name": "Schneier 7 Pasadas",
+        "recommendation": "🔒 Sólido — archivos y discos HDD",
+        "forWhom": "Úsalo con archivos o discos HDD cuando DoD 3 pasadas no te parece suficiente pero Gutmann 35 es excesivo. Diseñado por el criptógrafo Bruce Schneier.",
+        "desc": "Sobreescribe los datos 7 veces: 0x00, 0xFF y cinco pasadas aleatorias. Ofrece una protección sólida contra la remanencia magnética en HDD sin el coste de tiempo de Gutmann. En SSD o NVMe usa Aleatorio (1 Pasada) — las múltiples pasadas no aportan nada en memorias flash."
       }
     },
     "targetLabel": "¿Qué quieres destruir?",

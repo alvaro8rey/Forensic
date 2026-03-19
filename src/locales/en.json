@@ -180,6 +180,12 @@
         "recommendation": "🔧 Alternative when Sanitize is not available",
         "forWhom": "Use this if NVMe Sanitize does not work on your drive. Also requires Administrator and a device path like \\\\.\\PhysicalDrive0.",
         "desc": "Sends a Format command directly to the NVMe drive's hardware, erasing and resetting the entire storage namespace. Slightly faster than Sanitize on some drives. Use this as a fallback if the Sanitize option returns an error."
+      },
+      "Schneier7": {
+        "name": "Schneier 7-Pass",
+        "recommendation": "🔒 Strong — files and HDDs",
+        "forWhom": "Use for files or HDD drives when DoD 3-pass is not enough but Gutmann 35-pass is overkill. Designed by cryptographer Bruce Schneier.",
+        "desc": "Overwrites data 7 times: 0x00, 0xFF, and five random passes. Provides strong protection against magnetic remanence on HDDs without the time cost of Gutmann. On SSDs or NVMe use Random (1 Pass) instead — multi-pass adds no benefit on flash."
       }
     },
     "targetLabel": "What do you want to destroy?",

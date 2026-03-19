@@ -182,7 +182,10 @@ async fn start_scan(
         }
 
         // ── Phase 2: Signature-based carving (slow, emits progress) ──────
-        let carver = FileCarver::new(path_clone, tx, cancel, allowed_types);
+        // Pass the FAT file count so Phase 2 progress events show the correct
+        // cumulative total (not starting back at 0 after Phase 1 results).
+        let fat_initial = all_results.len() as u64;
+        let carver = FileCarver::new(path_clone, tx, cancel, allowed_types, fat_initial);
         match carver.scan() {
             Ok(sig_files) => {
                 // Merge: FAT entries take priority; skip sig entries whose
@@ -335,9 +338,8 @@ async fn recover_batch(
             results.iter().find(|f| f.id == id).map(|f| {
                 let fname = f.original_name.clone()
                     .unwrap_or_else(|| {
-                        let ext = crate::modules::fat::ext_to_filetype(&format!(".{}", f.file_type))
-                            .to_string().to_lowercase();
-                        format!("recovered_{}_{}.{}", f.file_type, f.id, ext)
+                        let type_s = format!("{}", f.file_type);
+                        format!("recovered_{}_{}.{}", type_s, f.id, type_to_ext(&type_s))
                     });
                 (f.id, f.offset_start, f.size_bytes, format!("{}", f.file_type), fname)
             })
@@ -417,10 +419,10 @@ async fn recover_all_organized(
             Box::new(results.iter().filter(|f| file_ids.contains(&f.id)))
         };
         iter.map(|f| {
-            let ext = format!("{}", f.file_type).to_lowercase();
+            let type_s = format!("{}", f.file_type);
             let fname = f.original_name.clone()
-                .unwrap_or_else(|| format!("recovered_{}_{}.{}", f.file_type, f.id, ext));
-            (f.id, f.offset_start, f.size_bytes, format!("{}", f.file_type), fname)
+                .unwrap_or_else(|| format!("recovered_{}_{}.{}", type_s, f.id, type_to_ext(&type_s)));
+            (f.id, f.offset_start, f.size_bytes, type_s, fname)
         }).collect()
     };
 
@@ -504,9 +506,9 @@ async fn export_recovered_zip(
         let results = state.scan_results.lock().unwrap();
         file_ids.iter().filter_map(|&id| {
             results.iter().find(|f| f.id == id).map(|f| {
-                let ext = format!("{}", f.file_type).to_lowercase();
+                let type_s = format!("{}", f.file_type);
                 let fname = f.original_name.clone()
-                    .unwrap_or_else(|| format!("recovered_{}_{}.{}", f.file_type, f.id, ext));
+                    .unwrap_or_else(|| format!("recovered_{}_{}.{}", type_s, f.id, type_to_ext(&type_s)));
                 (f.id, f.offset_start, f.size_bytes, fname)
             })
         }).collect()
@@ -526,6 +528,7 @@ async fn export_recovered_zip(
     let mut src = open_device_ro(&device_path)
         .map_err(|e| format!("Cannot open device: {}", e))?;
 
+    let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut count = 0usize;
     for (_id, offset_start, size_bytes, filename) in entries {
         let read_size = size_bytes.min(500 * 1024 * 1024) as usize;
@@ -534,12 +537,22 @@ async fn export_recovered_zip(
             Err(_) => continue,
         };
 
-        // Ensure unique filenames inside the ZIP
-        let entry_name = if count == 0 { filename.clone() }
-            else {
-                let dot = filename.rfind('.').unwrap_or(filename.len());
-                format!("{}_{}{}", &filename[..dot], count, &filename[dot..])
-            };
+        // Ensure unique filenames inside the ZIP — only add a counter when there
+        // is an actual name collision, not for every file after the first.
+        let entry_name = if !used_names.contains(&filename) {
+            filename.clone()
+        } else {
+            let dot = filename.rfind('.').unwrap_or(filename.len());
+            let mut n = 1u32;
+            loop {
+                let candidate = format!("{}_{}{}", &filename[..dot], n, &filename[dot..]);
+                if !used_names.contains(&candidate) {
+                    break candidate;
+                }
+                n += 1;
+            }
+        };
+        used_names.insert(entry_name.clone());
 
         if zip.start_file(&entry_name, options).is_ok() {
             let _ = zip.write_all(&data);
@@ -596,6 +609,38 @@ async fn preview_file(
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
     Ok(format!("{}:{}", mime, b64))
+}
+
+// ── Extension helpers ─────────────────────────────────────────────────────────
+
+/// Maps a `FileType` display string (e.g. "JPEG", "SevenZ") to a proper file
+/// extension.  Used when building output filenames for recovery operations.
+fn type_to_ext(file_type: &str) -> &'static str {
+    match file_type {
+        "JPEG"   => "jpg",
+        "PNG"    => "png",
+        "GIF"    => "gif",
+        "TIFF"   => "tif",
+        "BMP"    => "bmp",
+        "PDF"    => "pdf",
+        "DOCX"   => "docx",
+        "XLSX"   => "xlsx",
+        "PPTX"   => "pptx",
+        "DOC"    => "doc",
+        "TXT"    => "txt",
+        "ZIP"    => "zip",
+        "RAR"    => "rar",
+        "SevenZ" => "7z",
+        "EXE"    => "exe",
+        "MP4"    => "mp4",
+        "AVI"    => "avi",
+        "MKV"    => "mkv",
+        "MP3"    => "mp3",
+        "WAV"    => "wav",
+        "FLAC"   => "flac",
+        "SQLite" => "db",
+        _        => "bin",
+    }
 }
 
 // ── Device I/O helpers ────────────────────────────────────────────────────────
@@ -830,6 +875,7 @@ async fn start_shred(
         "RandomSingle" => ShredAlgorithm::RandomSingle,
         "NvmeSanitize" => ShredAlgorithm::NvmeSanitize,
         "NvmeFormat" => ShredAlgorithm::NvmeFormat,
+        "Schneier7"  => ShredAlgorithm::Schneier7,
         _ => return Err(format!("Unknown algorithm: {}", algorithm)),
     };
 

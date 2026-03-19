@@ -32,13 +32,17 @@ impl FileCarver {
         progress_tx: Sender<ScanProgress>,
         cancel_flag: Arc<AtomicBool>,
         allowed_types: Option<Vec<FileType>>,
+        /// Files already found before Phase 2 (e.g. FAT directory carving).
+        /// Pre-loading this counter ensures the progress bar shows the correct
+        /// cumulative total instead of resetting to 0 at the start of Phase 2.
+        initial_count: u64,
     ) -> Self {
         Self {
             device_path,
             progress_tx,
             cancel_flag,
             bytes_scanned: Arc::new(AtomicU64::new(0)),
-            found_count: Arc::new(AtomicU64::new(0)),
+            found_count: Arc::new(AtomicU64::new(initial_count)),
             allowed_types,
         }
     }
